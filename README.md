@@ -1,6 +1,6 @@
 # MDK Core
 
-MDK is a JavaScript-based backend SDK that provides a modular, extensible foundation for monitoring mining infrastructure, controlling devices and containers, collecting telemetry and operational data, building custom mining applications and integrations.
+MDK Core is a JavaScript-based backend SDK that provides a modular, extensible foundation for monitoring mining infrastructure, controlling devices and containers, collecting telemetry and operational data, building custom mining applications and integrations.
 
 ---
 
