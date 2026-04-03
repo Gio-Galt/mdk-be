@@ -17,30 +17,36 @@ This document translates the MDK architecture proposal into a **developer-facing
 ### 2.1 Layer overview
 
 ```mermaid
-graph TD
-    subgraph Consumers
+graph TB
+    subgraph L1["Layer 1: Consumers"]
         UI["UI"]
-        AI["AI Agent (via MCP)"]
-    end 
-
-    subgraph AppNode["APP NODE"]
-        Route1["POST / (MDK Protocol entrypoint)"]
+        AI["AI Agent"]
     end
 
-    subgraph ORK["ORK KERNEL"]
+    subgraph L2["Layer 2: Gateways"]
+        Route1["App Node (POST /)"]
+        MCPServer["MCP Server"]
     end
 
-    subgraph Workers["WORKERS"]
+    subgraph L3["Layer 3: ORK Kernel"]
+        ORK["ORK"]
     end
 
-    subgraph Devices["PHYSICAL DEVICES"]
+    subgraph L4["Layer 4: Workers"]
+        Workers["WORKERS"]
     end
 
-    UI -->|"REST / WebSocket"| AppNode
-    AI -->|"MDK Protocol (HRPC MCP)"| ORK
-    AppNode -->|"MDK Protocol (HRPC)"| ORK
-    ORK -->|"MDK Protocol (Pull from workers)"| Workers
-    Workers --> Devices
+    subgraph L5["Layer 5: Physical Devices"]
+        Devices["PHYSICAL DEVICES"]
+    end
+
+    UI -->|"REST"| Route1
+    AI -->|"MCP Protocol"| MCPServer
+    Route1 -->|"MDK (HRPC)"| ORK
+    MCPServer -->|"MDK (HRPC)"| ORK
+    Workers -->|"register + declare"| ORK
+    ORK -->|"pull + command"| Workers
+    Workers -->|"device libs"| Devices
 ```
 
 ### 2.2 Storage layer
@@ -65,33 +71,34 @@ graph TD
   "type":          "request | response | event",
   "action":        "<protocol action>",
   "sender":        "<component:type:instance>",
-  "target":        "<component:type:instance>",
+  "target":        "<component:type:instance> | null",
   "deviceId":      "string | null",
   "correlationId": "uuid-v4 | null",
   "timestamp":     1711640000000,
   "payload":       {}
 }
 ```
+*Note: External consumers (UI/AI agents) only provide `deviceId`; the `target` worker identity is internally resolved by ORK.*
 
 ### 3.3 Core actions
 
 | Action | Type | Direction | Purpose |
 |---|---|---|---|
-| `identity.register` | request | Worker → ORK | Worker presents identity; ORK acknowledges before schema is sent |
+| `identity.register` | request | Worker → ORK | Worker presents identity; ORK acknowledges |
 | `capability.declare` | request | Worker → ORK | Worker declares devices, capability schema, metadata, and embedded `skill.md` |
 | `deregister` | request | Worker → ORK | Worker announces graceful shutdown |
-| `state.pull` | request | ORK → Worker | ORK queries managed devices mapping to this worker |
-| `telemetry.pull` | request | ORK → Worker | ORK pulls metrics and event history |
-| `command.request` | request | ORK → Worker | ORK sends a command to execute on a device |
+| `state.pull` | request | ORK → Worker | Worker returns a snapshot of worker state-machine status (Low cadence tick, e.g., 60s) |
+| `telemetry.pull` | request | ORK → Worker | Worker returns device metrics plus historic metrics (Medium cadence tick, e.g., 10s) |
+| `command.request` | request | ORK → Worker | ORK resolves the worker by `deviceId` and dispatches the command for execution |
 | `health.ping` | request | ORK → Worker | Liveness probe |
 
 ### 3.4 Protocol Governance
 
-To maintain structural integrity and contract stability across disparate components (ORK, App Node, Workers), the MDK Protocol is governed using **Protocol Buffers (Protobuf)**, comparable schema definition tools, or strictly versioned, shared code modules. This ensures that every message and event strictly adheres to a predefined structural schema.
+To maintain structural integrity and contract stability across disparate components (ORK, App Node, Workers), the MDK Protocol messages are governed and validated using **Hyperschema** (https://github.com/holepunchto/hyperschema). Hyperschema aligns natively with the system's underlying Hyperbee storage, providing strict, binary-compact schema validation for every protocol message and event without the heavyweight toolchain overhead of Protobuf or gRPC.
 
 ### 3.5 Base Command Set
 
-MDK standardizes a set of **Base Commands** that are supported by all workers, minimizing the need for ad-hoc, device-specific capabilities:
+MDK standardizes a set of **Base Commands** that are supported by all workers::
 
 - `getConfig`: Retrieve current device configuration.
 - `setConfig`: Update device configuration parameters.
@@ -104,7 +111,7 @@ MDK standardizes a set of **Base Commands** that are supported by all workers, m
 sequenceDiagram
     participant W as Worker
     participant O as ORK
-    participant N as Node/AI Agent/CLI
+    participant G as Gateway (App Node / MCP)
 
     rect rgb(40, 40, 60)
     Note over W,O: Registration & Discovery
@@ -121,11 +128,11 @@ sequenceDiagram
     end
 
     rect rgb(60, 40, 40)
-    Note over N,W: Command execution
-    N->>O: POST /things
-    O->>W: command.execute
+    Note over G,W: Command execution
+    G->>O: MDK Protocol HRPC Envelope
+    O->>W: command.request (routed by deviceId)
     W-->>O: command.result
-    O-->>N: result
+    O-->>G: result
     end
 ```
 
@@ -135,10 +142,10 @@ sequenceDiagram
 
 ### 4.1 App Node — Optional Generic API Gateway
 
-**Responsibility:** Provides customized auth and generic HTTP routes for UI. 
+**Responsibility:** Provides user auth and generic HTTP routes for UI. 
 
 **Decoupled from Thing Type & ID:** 
-The App Node has NO hardcoded routes per device type (e.g., no `/wm` route prefixing), and there is no need to pass a `thing_id` in a path parameter, because the payload protocol implicitly contains the target thing's ID.
+The App Node has NO hardcoded routes per device type without `thing_id` in a path parameter, because the payload protocol implicitly contains the target thing's ID.
 
 | URL | Direction |
 |---|---|
@@ -159,8 +166,8 @@ The App Node has NO hardcoded routes per device type (e.g., no `/wm` route prefi
   "type": "request",
   "action": "command.request",
   "sender": "appnode:generic:01",
-  "target": "worker:whatsminer-m56s:rack-04",
-  "deviceId": "WM001",
+  "target": "ork",
+  "deviceId": "wm001",
   "payload": {
     "command": "reboot",
     "params": {}
@@ -177,7 +184,7 @@ The App Node has NO hardcoded routes per device type (e.g., no `/wm` route prefi
   "correlationId": "msg-101",
   "version": "0.1.0",
   "type": "response",
-  "sender": "worker:whatsminer-m56s:rack-04",
+  "sender": "ork",
   "target": "appnode:generic:01",
   "payload": {
     "status": "ok",
@@ -188,16 +195,36 @@ The App Node has NO hardcoded routes per device type (e.g., no `/wm` route prefi
 ```
 
 **Auth:** 
-Consumers requiring standard authorization will use the App Node to intercept and authenticate requests before bridging to ORK via HRPC.
+Consumers requiring standard authorization (like JWT) will use the App Node to authenticate requests before sending them to ORK via HRPC.
+
+**Routing contract:** UI/AI agents should only provide `deviceId`; ORK resolves the owning worker internally and dispatches the `command.request` without requiring consumers to know (or leak) any worker identity.
 
 ### 4.2 HRPC-Based MCP (Model Context Protocol)
 
 **Responsibility:** AI/Agent connectivity into the orchestration layer.
 
-Instead of navigating the HTTP API, agents and specialized clients can interact with ORK directly using HRPC based MCP.
-- Workers provide their own `skill.md` mapping specialized actions, data structures, and nuanced operation insights.
-- The ORK kernel aggregates these `skill.md` assets and exposes them to the agent via MCP.
-- Agents use this to contextualize capabilities and dispatch complex command suites.
+The **App Node** is truly optional—only needed for human-facing UIs that require REST routers and traditional auth middleware. 
+
+Agent-first deployments may not need it at all. 
+
+The data flow architecture guarantees parity:
+- **Human UI → App Node → ORK**
+- **AI Agent → MCP Server → ORK** 
+
+Agents interact with ORK using the MCP Server interface. ORK exposes a tool surface to the MCP Server:
+
+| Tool/Method | Operation | Purpose |
+|---|---|---|
+| `list_workers` | Read | Read all registered workers and their current health status |
+| `list_capabilities` | Read | Read what each worker/device can dynamically do |
+| `get_device_state` | Read | Read the current state metric snapshot of a device |
+| `get_skill` | Read | Fetch the `skill.md` context for a specific worker type |
+| `execute_command` | Write | Dispatch a command (e.g., `reboot`, `setConfig`) through the full ORK queue pipeline |
+| `get_command_status` | Read | Poll a command's lifecycle state (QUEUED, EXECUTING, SUCCESS) |
+
+**Skill Format Contract:** The format of `skill.md` is intentionally **unstructured, free-form Markdown** for v1. It serves as an operational narrative and prompt injection for LLMs (e.g., Supported Commands, Constraints, Examples). It avoids strict schemas to give developers maximal flexibility for context generation. Examples shall be provided for developers to reference.
+
+**Auth (required):** The MCP endpoint must be protected following the same whitelisting pattern used for the App Node. 
 
 ### 4.3 ORK Kernel — Orchestration Engine
 
@@ -209,12 +236,18 @@ ORK is characterized by split internal modules utilizing multiple state machines
 
 | Module | Core Responsibility |
 |---|---|
-| **Local Index / Registry** | Holds an in-memory mapped local index of workers and managed devices, populated *strictly* by pulling data periodically from dynamically discovered worker nodes (via Service Discovery mechanisms). |
+| **Local Index / Registry** | Holds the active registry of workers and managed devices, **persisted directly in Hyperbee** to ensure durability across ORK restarts. Populated by workers **self-registering** via `identity.register` upon startup. |
 | **State Machines** | Multiple decoupled state machines running parallel. This shall be directly refered from the proposal & improved upon it |
-| **MCP Handler** | Direct HRPC listener exposing localized `skill.md` contexts to agents. |
+| **MCP Handler** | Direct HRPC listener exposing localized `skill.md` contexts to the MCP Server. |
 | **Concurrency Manager** | Per-device locks, global queue depth. |
 | **Fault Supervisor** | Evaluates failed pulls, operates circuit breakers. |
 
+#### 4.3.2 Recovery
+
+Upon restart, the **Scheduler** executes a recovery sweep:
+1. Load the worker registry state previously persisted in Hyperbee into memory.
+2. Re-establish HRPC connections to the known worker endpoints.
+3. Fire `state.pull` / `health.ping` to all known targets to verify current liveness.
 
 ### 4.4 Workers — Device Integration Handlers
 
@@ -238,7 +271,7 @@ ORK is characterized by split internal modules utilizing multiple state machines
 ```json
 {
   "devices": [
-    { "deviceId": "WM001", "ip": "192.168.1.100", "port": 8080 }
+    { "deviceId": "wm001", "ip": "192.168.1.100", "port": 8080 }
   ],
   "capabilities": {
     "telemetry": [{ "name": "hashrate", "unit": "TH/s", "type": "number" }],
@@ -256,18 +289,18 @@ ORK is characterized by split internal modules utilizing multiple state machines
 ```
 
 - **Top-Down Pull for Everything Else:** For all operations & telemetry, workers wait for ORK to pull data or issue commands.
-- **Generic Interface Mapping:** Actions are processed using a generic MDK Protocol format containing metadata specific to the device while sharing capabilities declared in `capability.declare`.
+- **Generic Interface Mapping:** Actions are processed using a generic MDK Protocol format containing metadata specific to the device.
 - Every worker must implement the contract mentioned in 3.5 regardless the type of device or how worker is called. 
 - WorkerBaseClass will be extended to provide all protocol boilerplate so that device workers only need to implement the device-specific parts:
 - The capability declaration includes a devices array listing all devices managed by this worker instance. ORK uses this to route commands to the correct worker based on deviceId.
 - ORK treats the Worker as the Source of Truth for the hardware, and ORK itself is just a Cache of that truth.
 
-
 ---
 
-## 5. Data Flow — End-to-End Example
+## 5. Data Flow — End-to-End Examples
 
-**Scenario:** User clicks "Reboot" on device `WM001` in the UI.
+### Scenario A: Human UI via App Node
+**Scenario:** User clicks "Reboot" on device `wm001` in the UI.
 
 ```mermaid
 sequenceDiagram
@@ -277,19 +310,19 @@ sequenceDiagram
     participant ORK as ORK
     participant Worker as Generic Worker
 
-    User->>UI: Click "Reboot" on WM001
-    UI->>Node: POST / { target: "WM001", action: "reboot", payload: {...} }
+    User->>UI: Click "Reboot" on wm001
+    UI->>Node: POST / { deviceId: "wm001", action: "reboot", payload: {...} }
 
     rect rgb(40, 50, 70)
     Note over Node,ORK: Delegation
     Node->>ORK: dispatch generic protocol message
     ORK->>ORK: Verify against generic capabilities ✓
-    ORK->>ORK: Local index lookup ✓
+    ORK->>ORK: Resolve worker for deviceId (local index lookup) ✓
     end
 
     rect rgb(40, 60, 50)
     Note over ORK,Worker: execution
-    ORK->>Worker: command.execute (HRPC)
+    ORK->>Worker: command.request (HRPC, routed by deviceId)
     Worker-->>ORK: Ack start
     Worker->>Worker: Hardware specific translation
     Worker-->>ORK: command.result
@@ -305,17 +338,60 @@ sequenceDiagram
     end
 ```
 
+### Scenario B: AI Agent via MCP Server
+**Scenario:** User prompts AI Agent: "Are there any miners overheating? If so, reboot them."
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant AI as AI Agent (Claude)
+    participant MCP as MCP Server
+    participant ORK as ORK
+    participant Worker as Generic Worker
+
+    User->>AI: "Are there any miners overheating? If so, reboot them."
+    
+    rect rgb(70, 50, 40)
+    Note over AI,ORK: Step 1: Health Discovery (Read)
+    AI->>MCP: Call tool `list_workers`
+    MCP->>ORK: HRPC Query
+    ORK-->>MCP: [Worker List + Health States + Type]
+    MCP-->>AI: Tool Result (wm002 is overheating, type: whatsminer)
+    end
+    
+    rect rgb(40, 60, 70)
+    Note over AI,ORK: Step 2: Skill/Context Discovery (Read)
+    AI->>MCP: Call tool `get_skill` (type: whatsminer)
+    MCP->>ORK: HRPC Query
+    ORK-->>MCP: [skill.md parsed context]
+    MCP-->>AI: Tool Result (Provides the JSON schema context for 'reboot' command)
+    end
+    
+    rect rgb(40, 50, 70)
+    Note over AI,ORK: Step 3: Execution (Write)
+    AI->>MCP: Call tool `execute_command` (deviceId: wm002, command: reboot)
+    MCP->>ORK: dispatch generic protocol message
+    ORK->>ORK: Validate credentials & resolve deviceId ✓
+    ORK->>Worker: command.request (HRPC)
+    Worker-->>ORK: command.result
+    ORK-->>MCP: result OK
+    MCP-->>AI: Tool Result (Success)
+    end
+    
+    AI-->>User: "wm002 was overheating and has been rebooted."
+```
+
 ---
 
 ## 6. External Integration Model
 
-Integrators build **one single generic worker package**. Because App Nodes no longer map specific router plugins, developers only manage the localized worker definitions.
+Integrators build **one single generic worker package** only with the worker definitions.
 
 ```text
 @acme-corp/mdk-worker-acmeminer
 ├── lib/               ← Hardware integration logic
 ├── worker.js          ← Standalone HRPC worker exposing capabilities
-├── skill.md           ← Definitions for the MCP ORK connection
+├── skill.md           ← Unstructured Markdown context for AI Agents
 └── package.json
 ```
 
