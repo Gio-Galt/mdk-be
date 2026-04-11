@@ -1,0 +1,17 @@
+{
+  "name": "@mdk/worker-whatsminer",
+  "version": "1.0.0",
+  "description": "MDK worker implementation for MicroBT Whatsminer devices",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@mdk/worker-base": "file:../mdk-worker-base"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@mdk/worker-base",
+  "version": "1.0.0",
+  "description": "MDK Worker Base boilerplate handling ORK protocol capabilities.",
+  "main": "src/MDKWorkerBase.js",
+  "type": "module",
+  "dependencies": {
+    "hypercore": "^10.0.0",
+    "hyperswarm": "^3.0.0"
+  }
+}

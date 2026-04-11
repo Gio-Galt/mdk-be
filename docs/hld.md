@@ -12,6 +12,16 @@
 
 This document translates the MDK architecture proposal into a **developer-facing High-Level Design** considering the discussion with Chetas, Gio, Hemant & Parag.
 
+### 1.2 Design Rationale: Flexibility vs. Rigidity
+
+**"Make the common case easy, and the rare case possible — not equally easy."**
+
+A guiding principle of the MDK architecture is avoiding the trap where unbound flexibility leads to system rigidity. Highly flexible systems—often characterized by boundless dynamic configuration, implicit rules, and over-engineered abstractions meant for "every possible future use case"—inevitably accrue hidden dependencies and steep maintenance burdens. Over time, fear of breaking interconnected logic stalls development, and the resulting chaos eventually forces strict rules, culminating in a rigid platform.
+
+To prevent this, MDK intentionally balances constraints:
+- **Opinionated where it must be:** Strict transport envelopes, formal unified JSON semantic schemas (`mdk-contract.json`), and clear unidirectional data flows ensure developers know exactly "how things are done."
+- **Flexible where it matters:** The translation logic residing in isolated Workers allows endless integration points for diverse external hardware without bleeding complex edge-cases back into the core orchestrator.
+
 ## 2. System Architecture
 
 ### 2.1 Layer overview
@@ -60,7 +70,7 @@ graph TB
 
 - **Transport-agnostic** — identical messages over in-process calls or HRPC or API Calls
 - **Mostly Unidirectional Communication** — The *only* worker-initiated operations toward ORK are `identity.register`, `capability.declare`, and `deregister` (see §3.3). All operational comms (telemetry, state, commands) are strictly pulled downwards from ORK to worker.
-- **Generic Interface** — The interface accepted is defined dynamically at the worker level via capabilities and `skill.md`.
+- **Generic Interface** — The interface accepted is defined dynamically at the worker level via a self-describing capabilities schema containing both structure and semantic context for AI agents.
 
 ### 3.2 Message envelope
 
@@ -73,7 +83,6 @@ graph TB
   "sender":        "<component:type:instance>",
   "target":        "<component:type:instance> | null",
   "deviceId":      "string | null",
-  "correlationId": "uuid-v4 | null",
   "timestamp":     1711640000000,
   "payload":       {}
 }
@@ -84,8 +93,7 @@ graph TB
 
 | Action | Type | Direction | Purpose |
 |---|---|---|---|
-| `identity.register` | request | Worker → ORK | Worker presents identity; ORK acknowledges |
-| `capability.declare` | request | Worker → ORK | Worker declares devices, capability schema, metadata, and embedded `skill.md` |
+| `identity.register` | request | Worker → ORK | Worker declares identity, devices, and its entire capability schema |
 | `deregister` | request | Worker → ORK | Worker announces graceful shutdown |
 | `state.pull` | request | ORK → Worker | Worker returns a snapshot of worker state-machine status (Low cadence tick, e.g., 60s) |
 | `telemetry.pull` | request | ORK → Worker | Worker returns device metrics plus historic metrics (Medium cadence tick, e.g., 10s) |
@@ -114,11 +122,9 @@ sequenceDiagram
     participant G as Gateway (App Node / MCP)
 
     rect rgb(40, 40, 60)
-    Note over W,O: Registration & Discovery
-    W->>O: identity.register
+    Note over W,O: One-Step Registration
+    W->>O: identity.register (schema, devices)
     O-->>W: identity.register.ack
-    W->>O: capability.declare (devices, capabilities, skill.md)
-    O-->>W: capability.declare.ack
     end
 
     rect rgb(40, 60, 40)
@@ -181,7 +187,6 @@ The App Node has NO hardcoded routes per device type without `thing_id` in a pat
 ```json
 {
   "id": "msg-102",
-  "correlationId": "msg-101",
   "version": "0.1.0",
   "type": "response",
   "sender": "ork",
@@ -218,11 +223,11 @@ Agents interact with ORK using the MCP Server interface. ORK exposes a tool surf
 | `list_workers` | Read | Read all registered workers and their current health status |
 | `list_capabilities` | Read | Read what each worker/device can dynamically do |
 | `get_device_state` | Read | Read the current state metric snapshot of a device |
-| `get_skill` | Read | Fetch the `skill.md` context for a specific worker type |
+| `get_worker_context` | Read | Fetch the schema and embedded semantic capabilities context for a specific worker type |
 | `execute_command` | Write | Dispatch a command (e.g., `reboot`, `setConfig`) through the full ORK queue pipeline |
 | `get_command_status` | Read | Poll a command's lifecycle state (QUEUED, EXECUTING, SUCCESS) |
 
-**Skill Format Contract:** The format of `skill.md` is intentionally **unstructured, free-form Markdown** for v1. It serves as an operational narrative and prompt injection for LLMs (e.g., Supported Commands, Constraints, Examples). It avoids strict schemas to give developers maximal flexibility for context generation. Examples shall be provided for developers to reference.
+**Context Format Contract:** MDK eschews separate unstructured documents for AI agents. Instead, semantic AI context (e.g., Supported Commands, Constraints, Examples) is injected directly as keys within the strict JSON capabilities schema. This ensures the programmatic definition and the reasoning context are tightly bound together.
 
 **Auth (required):** The MCP endpoint must be protected following the same whitelisting pattern used for the App Node. 
 
@@ -232,68 +237,180 @@ Agents interact with ORK using the MCP Server interface. ORK exposes a tool surf
 
 ORK is characterized by split internal modules utilizing multiple state machines to track different domains without coupling, operating exclusively.
 
-#### 4.3.1 High level Modules
+#### 4.3.1 High-level Modules
 
-| Module | Core Responsibility |
-|---|---|
-| **Local Index / Registry** | Holds the active registry of workers and managed devices, **persisted directly in Hyperbee** to ensure durability across ORK restarts. Populated by workers **self-registering** via `identity.register` upon startup. |
-| **State Machines** | Multiple decoupled state machines running parallel. This shall be directly refered from the proposal & improved upon it |
-| **MCP Handler** | Direct HRPC listener exposing localized `skill.md` contexts to the MCP Server. |
-| **Concurrency Manager** | Per-device locks, global queue depth. |
-| **Fault Supervisor** | Evaluates failed pulls, operates circuit breakers. |
+To ensure clear boundaries, persistence guarantees, and horizontal scalability, ORK is decomposed into distinct, single-responsibility modules. The ORK design is heavily inspired by the Node.js event loop and Kubernetes architecture, where a **pull-only model** scales exceptionally well. A push model could easily choke the receiver in high-traffic scenarios, but by strictly pulling, ORK intrinsically applies backpressure and dictates the pace of execution.
 
-#### 4.3.2 Recovery
+```mermaid
+flowchart TD
+    MCP[MCP Handler] -->|Validates/Routes| CD[Command Dispatcher]
+    CD -->|Enqueues| CSM[Command State Machine]
+    CSM <-->|HRPC Req/Res| W[Worker]
+    SCH -->|Triggers State Pull| CSM
+    CSM -->|state.pull| W
+    WR[Worker Registry] -->|Routing lookup| CD
+    HM[Health Monitor] -->|Updates Status| WR
+    SCH[Scheduler] -->|Triggers Interval| HM
+    SCH -->|Triggers Pull| TC[Telemetry Collector]
+    TC -->|Pulls Metrics| W
+```
 
-Upon restart, the **Scheduler** executes a recovery sweep:
-1. Load the worker registry state previously persisted in Hyperbee into memory.
-2. Re-establish HRPC connections to the known worker endpoints.
-3. Fire `state.pull` / `health.ping` to all known targets to verify current liveness.
+For each core module, we define strict boundaries for business logic, interfaces, recovery, and scale:
+
+##### 1. Command Dispatcher
+*   **Business Logic / Responsibility:** Validates incoming commands against the generic MDK schema, checks permissions, and resolves the correct worker based on the `deviceId`. 
+    *   *Example:* When an App Node sends a `reboot` command for `wm001`, the Dispatcher verifies that `wm001` exists, that `reboot` is a valid capability for it, and then passes the request to the State Machine.
+*   **Interfaces:** 
+    *   *Input:* Receives generic commands via HRPC/MDK Protocol from App Node or MCP Handler.
+    *   *Output:* Hands off validated commands to the Command State Machine.
+    *   *Functions:* `dispatchCommand(deviceId, action, payload)`
+*   **State Machine:**
+    ```mermaid
+    stateDiagram-v2
+        [*] --> Validating
+        Validating --> RoutingAction : Valid
+        Validating --> Rejected : Invalid
+        RoutingAction --> Enqueued
+        Enqueued --> [*]
+    ```
+*   **Crash Recovery:** None needed. In-flight requests will fail and must be retried by the client.
+*   **Scalability:** Extracted easily; can run independently to offload validation.
+
+##### 2. Command State Machine
+*   **Business Logic / Responsibility:** Tracks the execution lifecycle of every single command in the system. It receives execution results directly via the synchronous HRPC response. If the connection drops or a response is delayed, it relies on the Scheduler to fetch the latest status via `state.pull` to ensure commands aren't hung.
+    *   *Example:* Once the `reboot` command is dispatched, it transitions to `EXECUTING`. If the HRPC response returns OK, it transitions to `SUCCESS`. If the response hangs, the next `state.pull` fetches the true status from the worker.
+*   **Interfaces:**
+    *   *Input:* Receives validated commands from Dispatcher. Status updates from HRPC responses or Scheduler ticks.
+    *   *Output:* Invokes worker HRPC execution layer; emits terminal state results to the caller.
+    *   *Functions:* `enqueue(command)`, `syncState(commandId)`, `cancel(commandId)`
+*   **State Machine:**
+    ```mermaid
+    stateDiagram-v2
+        [*] --> QUEUED
+        QUEUED --> DISPATCHED
+        DISPATCHED --> EXECUTING : HRPC Sent
+        EXECUTING --> SUCCESS : state.pull (response)
+        EXECUTING --> FAILED : state.pull (error)
+        EXECUTING --> TIMEOUT
+        TIMEOUT --> QUEUED : Retry allowed
+        TIMEOUT --> FAILED : Max retries
+        SUCCESS --> [*]
+        FAILED --> [*]
+    ```
+*   **Crash Recovery:** On startup, performs a recovery sweep of pending commands: `DISPATCHED` / `EXECUTING` are forced to `TIMEOUT` (re-queued if retries available); `QUEUED` are left untouched.
+*   **Scalability:** Scaling requires state sharding (e.g., sharding by device/rack).
+
+##### 3. Worker Registry
+*   **Business Logic / Responsibility:** Acts as the phonebook for the entire ORK ecosystem. It maps which physical device IDs belong to which connected worker channels and stores their declared capabilities. 
+    *   *Example:* A `whatsminer-worker` connects and declares it manages `wm001` and `wm002`. The Registry saves this topology so the Dispatcher knows exactly where to route a command for `wm001`.
+*   **Interfaces:**
+    *   *Input:* `identity.register` requests from workers.
+    *   *Output:* Internal events triggering full state lifecycle binding.
+    *   *Functions:* `resolveWorkerState(target)`
+*   **State Machine:**
+    ```mermaid
+    stateDiagram-v2
+        [*] --> Unregistered
+        Unregistered --> Ready : identity.register
+        Ready --> Terminated : deregister (or eviction)
+        Terminated --> [*]
+    ```
+*   **Crash Recovery:** Rebuilt from state, which serves as a baseline to detect workers that were registered but failed to reconnect.
+*   **Scalability:** Can be read-heavy and extracted into a read-replica architecture or partitioned by region/rack.
+
+##### 4. Telemetry Collector
+*   **Business Logic / Responsibility:** Acts as a lightweight proxy and routing layer between the upper system (UI/AI) and the downstream workers. Rather than ORK performing heavy time-series aggregations, the *Worker* is responsible for storing and aggregating data for the specific devices it controls. The ORK Collector simply provides an interface to query this data and proxies the response up to the UI (via App Node) or the AI Agent.
+*   **Worker Data Handling (Telemetry Context):**
+    *   **Compaction:** The worker handles the compaction of metrics over large time frames.
+    *   **Local Storage:** It is recommended that workers save this telemetry data in a local hyper DB.
+    *   **As-Requested Serving:** The worker serves the data strictly when ORK asks for it, precisely as dictated by the telemetry schemas in `mdk-contract.json`.
+    *   **Internal Scheduling:** To achieve this without blocking ORK, the worker may run its own internal scheduler for internal device polling.
+*   **Interfaces:**
+    *   *Input:* Client or AI telemetry queries (e.g., "fetch metrics for device wm001").
+    *   *Output:* Normalized telemetry payloads passed straight through from the Worker to the requesting layer.
+    *   *Functions:* `proxyTelemetryFetch(deviceId, queryArgs)`
+*   **State Machine:**
+    ```mermaid
+    stateDiagram-v2
+        [*] --> Idle
+        Idle --> Proxying : Request received from UI/AI
+        Proxying --> RoutingToClient : Worker returns aggregated data
+        Proxying --> Timeout : Worker unresponsive
+        RoutingToClient --> Idle
+    ```
+*   **Scalability:** Because the heavy lifting of data storage and aggregation is pushed down into the isolated worker processes, the ORK Telemetry Collector remains stateless and highly scalable as a pure asynchronous router.
+
+##### 5. Scheduler
+*   **Business Logic / Responsibility:** The system metronome. It triggers repetitive tasks without holding any domain-specific logic itself.
+    *   *Example:* Emits an internal `tick` event every 60 seconds which the Health Monitor listens to, prompting it to ping all workers.
+*   **Interfaces:**
+    *   *Input:* System clock and configured task intervals.
+    *   *Output:* Injects intents (e.g., `telemetry.pull`, `health.ping`) into the Dispatcher/Collector.
+    *   *Functions:* `addJob(interval, intent)`, `removeJob(jobId)`
+*   **State Machine:**
+    ```mermaid
+    stateDiagram-v2
+        [*] --> Waiting
+        Waiting --> Triggered : Interval Elapsed
+        Triggered --> Waiting
+    ```
+*   **Crash Recovery:** Timers re-initialize from zero on startup. Tasks are strictly idempotent.
+*   **Scalability:** Scales trivially. Requires basic distributed locking to avoid duplicate ticks in multi-process ORK deployments.
+
+##### 6. Health Monitor
+*   **Business Logic / Responsibility:** Continuously evaluates the liveness and readiness of every registered worker to prevent routing messages to dead nodes.
+    *   *Example:* If the `health.ping` to a worker fails three times in a row, the Health Monitor marks the worker's status as `SICK` and tells the Registry to halt routing new commands there.
+*   **Interfaces:**
+    *   *Input:* Executes `health.ping` sequentially based on Scheduler ticks.
+    *   *Output:* Pushes status updates to the Registry; escalates to Fault Supervisor if a worker dies.
+    *   *Functions:* `pingWorker(workerId)`, `getHealth(workerId)`
+*   **State Machine:**
+    ```mermaid
+    stateDiagram-v2
+        [*] --> UNKNOWN
+        UNKNOWN --> HEALTHY : Ping Success
+        HEALTHY --> SICK : Ping Failed (1)
+        SICK --> DEAD : Ping Failed (Threshold)
+        SICK --> HEALTHY : Ping Success
+        DEAD --> HEALTHY : Reconnected
+    ```
+*   **Crash Recovery:** Blank slate on startup; re-evaluates all known workers immediately via ping.
+*   **Scalability:** Operates locally per ORK kernel or via independent lightweight ping agents.
+
+##### 7. Fault Supervisor *(Deferred for v1)*
+*   **Idea:** Implements circuit-breaker patterns to protect the overall system from cascading failures caused by bad hardware or software bugs (e.g., rejecting commands during a cooling period upon repeated errors).
+*   **Status:** For the first cut, to keep the core orchestrator simple, we are going to skip the dedicated Fault Supervisor. Later on, if the use-case arises (such as complex retry backoffs or cluster destabilization), we will reintroduce it.
+
+##### 8. Concurrency Manager *(Deferred for v1)*
+*   **Idea:** Provides guaranteed lock management and queue limits to ensure mutually exclusive commands do not overlap on physical devices.
+*   **Status:** For the first cut, to keep the system simple, we are skipping the centralized Concurrency Manager module and relying solely on the basic command queue. Later on, if the use-case arises for explicit global locks or backpressure limits, we will build out this module.
+
+#### 4.3.2 System Recovery Overview
+
+On a full system crash and restart, ORK modules orchestrate recovery without user intervention:
+1. **Registry:** Loads last known worker and device states from Hyperbee.
+2. **State Machine:** Sweeps the WAL for stranded `EXECUTING` tasks and forces them to timeout/retry.
+3. **Health Monitor:** Begins firing immediate pings to verify which workers are still active.
+4. **Connections:** Network layer awaits incoming HRPC reconnect storms from persistent workers.
 
 ### 4.4 Workers — Device Integration Handlers
 
 **Responsibility:** Wraps device library and exposes via MDK protocol
 
-- **Register / Deregister Only:** The *only* operations initiated by a worker to ORK are `identity.register`, `capability.declare`, and `deregister` (transport is HRPC or equivalent).
-- **Two-step registration:** Identity is acknowledged first; the capability schema (including `skill.md`) is declared second. This lets ORK validate each layer independently and supports re-declaring capabilities after a change without a full worker restart.
-- **Capability and skill context:** The full device list, capability schema, metadata, and embedded `skill.md` are carried in `capability.declare` (not in `identity.register`).
+- **Register / Deregister Only:** The *only* operations initiated by a worker to ORK are `identity.register` and `deregister` (transport is HRPC or equivalent).
+- **Single-step registration:** The worker's identity, device enumeration, and full capability schema (`mdk-contract.json`) are bundled into a single registration transmission. This guarantees fail-fast capability validation upon boot.
 
-##### `identity.register` — payload (illustrative)
-```json
-{
-  "workerType": "whatsminer-worker",
-  "protocolVersion": "0.1.0",
-  "processId": "pid-12345",
-  "startedAt": 1711640000000
-}
-```
+##### `identity.register` — payload construction
 
-##### `capability.declare` — payload (illustrative)
-```json
-{
-  "devices": [
-    { "deviceId": "wm001", "ip": "192.168.1.100", "port": 8080 }
-  ],
-  "capabilities": {
-    "telemetry": [{ "name": "hashrate", "unit": "TH/s", "type": "number" }],
-    "commands": [
-      { "name": "getConfig", "params": [] },
-      { "name": "setConfig", "params": [{ "name": "limit", "type": "number" }] },
-      { "name": "health", "params": [] }
-    ],
-    "events": ["alert.overheat"],
-    "health": true
-  },
-  "metadata": { "brand": "Whatsminer", "model": "M56S", "deviceType": "miner" },
-  "skill": "# Whatsminer Control Skill\nAllows rebooting and hashrate monitoring..."
-}
-```
+The registration payload is built via the direct application of the device's `mdk-contract.json` merged with its currently managed `devices` array.
 
-- **Top-Down Pull for Everything Else:** For all operations & telemetry, workers wait for ORK to pull data or issue commands.
-- **Generic Interface Mapping:** Actions are processed using a generic MDK Protocol format containing metadata specific to the device.
-- Every worker must implement the contract mentioned in 3.5 regardless the type of device or how worker is called. 
-- WorkerBaseClass will be extended to provide all protocol boilerplate so that device workers only need to implement the device-specific parts:
-- The capability declaration includes a devices array listing all devices managed by this worker instance. ORK uses this to route commands to the correct worker based on deviceId.
-- ORK treats the Worker as the Source of Truth for the hardware, and ORK itself is just a Cache of that truth.
+*Please refer to **Section 6.2** and `mdk-contract.schema.json` for the exact formulation of this schema payload (encompassing telemetry semantics, command boundaries, and AI mappings).*
+
+- **Strict Top-Down Pull:** For all operational functions and telemetry loops, workers wait for ORK to pull data or issue commands downwards. Telemetry is never pushed.
+- **Generic Interface Mapping:** Actions are processed using a generic MDK Protocol format, translating from the strict JSON Schema boundaries into specific hardware signals.
+- **Base Command Contract:** Every worker must support a minimum baseline set of commands (e.g., `getConfig`, `setConfig`, `health`) regardless of device type, as documented in 3.5.
+- **WorkerBaseClass:** Workers should ideally inherit from a provided Base Class containing all the HRPC protocol boilerplate. This allows external integrators to focus purely on hardware translation and fulfilling their `mdk-contract.json`.
+- **Source of Truth:** ORK treats the Worker as the unyielding Source of Truth for the hardware; ORK itself operates purely as a synchronized state machine or cache of that truth.
 
 ---
 
@@ -360,11 +477,11 @@ sequenceDiagram
     end
     
     rect rgb(40, 60, 70)
-    Note over AI,ORK: Step 2: Skill/Context Discovery (Read)
-    AI->>MCP: Call tool `get_skill` (type: whatsminer)
+    Note over AI,ORK: Step 2: Context Discovery (Read)
+    AI->>MCP: Call tool `get_worker_context` (type: whatsminer)
     MCP->>ORK: HRPC Query
-    ORK-->>MCP: [skill.md parsed context]
-    MCP-->>AI: Tool Result (Provides the JSON schema context for 'reboot' command)
+    ORK-->>MCP: [schema with embedded semantic context]
+    MCP-->>AI: Tool Result (Provides the JSON schema and embedded constraints for 'reboot' command)
     end
     
     rect rgb(40, 50, 70)
@@ -385,19 +502,63 @@ sequenceDiagram
 
 ## 6. External Integration Model
 
-Integrators build **one single generic worker package** only with the worker definitions.
+To build extensibility that is genuinely straightforward, MDK defines a **strict Device-Lib Contract**. External developers integrate new hardware by building a generic worker package conforming to this template.
+
+### 6.1 The Device-Lib Template
+
+A canonical device-lib worker package must follow this standard structure:
 
 ```text
 @acme-corp/mdk-worker-acmeminer
-├── lib/               ← Hardware integration logic
-├── worker.js          ← Standalone HRPC worker exposing capabilities
-├── skill.md           ← Unstructured Markdown context for AI Agents
+├── src/
+│   ├── index.js             ← Main HRPC worker entrypoint
+│   ├── hardware.js          ← Hardware integration & protocol logic (REST/SSH/etc.)
+│   └── mapping.js           ← Maps hardware responses to MDK schema
+├── test/
+│   ├── worker.spec.js       ← Unit tests for capability declarations & mapping
+│   └── hardware.mock.js     ← Mock hardware responses
+├── mdk-contract.json        ← Canonical capability schema (with embedded semantics)
 └── package.json
 ```
 
-**Workflow:**
-1. Developer writes worker translation.
-2. Supplies `skill.md` with action context.
-3. Worker initiates registration to ORK with `identity.register` then `capability.declare` (see §3.3 and §4.4).
+### 6.2 Unified Contract Schema (`mdk-contract.json`)
+
+The `mdk-contract.json` is the canonical source of truth for the worker's programmatic capabilities and AI context. MDK deliberately merges formal validations and semantic AI guidelines into this single JSON contract.
+
+- **Unified Intelligence:** Prompt-injections (like thermal safety warnings) are woven organically into standard machine fields rather than isolated in separate documents.
+  - `description` handles both human UI labeling and AI edge-case rules (e.g., *"Outlet temperature > 85C requires intervention"*).
+  - `constraints` inherently governs orchestration limits.
+  - `troubleshooting` provides if/then recovery behaviors directly alongside the payload it evaluates.
+
+The exhaustive JSON Validation Schema detailing exactly how this contract must be built currently exists at:
+**[`mdk-worker-base/mdk-contract.schema.json`](../mdk-worker-base/mdk-contract.schema.json)**
+
+*Please reference that schema file for the exact breakdown of data types and required structure.*
+
+### 6.3 Workflow
+1. Integrator references `mdk-contract.schema.json` to author the `mdk-contract.json`, validating strict data schemas while injecting explanations, constraints, and troubleshooting directly into the relevant nodes.
+2. Integrator implements the `src/hardware.js` translation logic.
+3. The worker instance boots, binds the static contract with dynamically discovered `devices`, and registers with ORK via `identity.register` followed by `capability.declare` (see §3.3 and §4.4).
 
 ---
+
+## 7. Scaling Model
+
+As MDK deployments scale to large mining sites (e.g., 5,000+ devices), the system must explicitly manage parallel workers and parallel ORK instances. ORK is strictly an execution kernel; it does not perform application-level aggregation or cross-regional business logic.
+
+### 7.1 Routing and Ownership (Parallel Workers)
+
+**Scenario:** Multiple workers of the same type (e.g., `whatsminer-worker`) are active concurrently and connected to the same ORK kernel.
+
+1. **Device-Level Ownership:** Workers share no devices. Ownership is explicitly partitioned at the device level. When a worker connects, its `capability.declare` payload explicitly lists the `deviceId`s it exclusively manages.
+2. **Deterministic Routing:** ORK's `Worker Registry` maintains a strict `deviceId -> workerId` mapping. When a command arrives for a specific `deviceId`, ORK routes it solely to the designated worker process.
+3. **Conflict Rejection:** If a secondary worker attempts to claim a device already registered by an actively healthy worker, ORK rejects the declaration. Horizontal scaling requires devices to be statically or dynamically partitioned across workers prior to ORK registration.
+
+### 7.2 Fan-out and Consistency (Parallel ORKs)
+
+**Scenario:** The deployment size requires multiple ORK instances (e.g., sharded by building, rack, or device type) connected upward to the same App Node or MCP Gateway.
+
+1. **Stateless App Node Routing:** The App Node, acting as the API Gateway, handles fan-out. It maintains a lightweight routing configuration defining which ORK instance manages which topology segment.
+2. **Shared-Nothing Kernel:** ORK instances are completely isolated from one another. They do not federate worker registries, share queues, or synchronize state. Cross-ORK consistency layers are deliberately excluded to maintain single-kernel predictability.
+3. **Global Aggregation:** When an external consumer requests a global view (e.g., fetching a site-wide device list), the App Node performs a scatter-gather fan-out query to all required ORK instances and aggregates the results before responding.
+4. **Independent Upward Streaming:** Each ORK instance maintains its own dedicated event and telemetry stream upward to the data layer, Node, or metrics sink. The consuming layer is responsible for cross-ORK aggregation.
