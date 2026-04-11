@@ -595,4 +595,4 @@ flowchart TD
 
 The single App Node and AI Agent connect globally to all distributed ORK kernels via the native HRPC mesh (`Hyperswarm`). Parallel ORK instances remain entirely isolated from one another — they do not federate registries, share queues, or synchronize state. A crash at one site has zero impact on any other.
 
-> **Cross-Site Aggregation (TBD):** How the App Node or AI Agent aggregates data across multiple ORK instances (e.g., global hashrate) is to be determined.
+> **Cross-Site Aggregation:** Refer MDK App [hld-mdk-app.md](./hld-mdk-app.md)
