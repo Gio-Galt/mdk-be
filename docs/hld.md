@@ -399,10 +399,11 @@ On a full system crash and restart, ORK modules orchestrate recovery without use
 
 - **Register / Deregister Only:** The *only* operations initiated by a worker to ORK are `identity.register` and `deregister` (transport is HRPC or equivalent).
 - **Single-step registration:** The worker's identity, device enumeration, and full capability schema (`mdk-contract.json`) are bundled into a single registration transmission. This guarantees fail-fast capability validation upon boot.
+- **Emergency Alert Piggybacking:** Because `identity.register` is the *only* action a worker can push to ORK, any critical hardware emergency (e.g., thermal bounds exceeded) must be pushed by re-emitting an `identity.register` payload with a special `emergencyAlert` block attached. This rigidly limits pushing to absolute emergencies.
 
 ##### `identity.register` — payload construction
 
-The registration payload is built via the direct application of the device's `mdk-contract.json` merged with its currently managed `devices` array.
+The registration payload is built via the direct application of the device's `mdk-contract.json` merged with its currently managed `devices` array. During critical failures, a minimal `emergencyAlert` object is bundled into this payload.
 
 *Please refer to **Section 6.2** and `mdk-contract.schema.json` for the exact formulation of this schema payload (encompassing telemetry semantics, command boundaries, and AI mappings).*
 
@@ -550,15 +551,48 @@ As MDK deployments scale to large mining sites (e.g., 5,000+ devices), the syste
 
 **Scenario:** Multiple workers of the same type (e.g., `whatsminer-worker`) are active concurrently and connected to the same ORK kernel.
 
-1. **Device-Level Ownership:** Workers share no devices. Ownership is explicitly partitioned at the device level. When a worker connects, its `capability.declare` payload explicitly lists the `deviceId`s it exclusively manages.
-2. **Deterministic Routing:** ORK's `Worker Registry` maintains a strict `deviceId -> workerId` mapping. When a command arrives for a specific `deviceId`, ORK routes it solely to the designated worker process.
-3. **Conflict Rejection:** If a secondary worker attempts to claim a device already registered by an actively healthy worker, ORK rejects the declaration. Horizontal scaling requires devices to be statically or dynamically partitioned across workers prior to ORK registration.
+```mermaid
+flowchart TD
+    ORK[Single ORK Kernel]
+    W1[Worker 1]
+    W2[Worker 2]
+    D1[Devices wm001 to wm500]
+    D2[Devices wm501 to wm999]
+    
+    ORK -->|Routes cmds| W1
+    ORK -->|Routes cmds| W2
+    W1 --- D1
+    W2 --- D2
+```
 
-### 7.2 Fan-out and Consistency (Parallel ORKs)
+**Device-Level Routing & Ownership:** Workers never share devices. When a worker connects, its `identity.register` payload explicitly lists the `deviceId`s it exclusively manages. ORK's `Worker Registry` maintains this strict mapping and deterministically routes arriving commands to the designated worker.
 
-**Scenario:** The deployment size requires multiple ORK instances (e.g., sharded by building, rack, or device type) connected upward to the same App Node or MCP Gateway.
+### 7.2 Multi-Site Centralization (Parallel ORKs)
 
-1. **Stateless App Node Routing:** The App Node, acting as the API Gateway, handles fan-out. It maintains a lightweight routing configuration defining which ORK instance manages which topology segment.
-2. **Shared-Nothing Kernel:** ORK instances are completely isolated from one another. They do not federate worker registries, share queues, or synchronize state. Cross-ORK consistency layers are deliberately excluded to maintain single-kernel predictability.
-3. **Global Aggregation:** When an external consumer requests a global view (e.g., fetching a site-wide device list), the App Node performs a scatter-gather fan-out query to all required ORK instances and aggregates the results before responding.
-4. **Independent Upward Streaming:** Each ORK instance maintains its own dedicated event and telemetry stream upward to the data layer, Node, or metrics sink. The consuming layer is responsible for cross-ORK aggregation.
+**Scenario:** A deployment requires managing multiple massive physical boundaries (e.g., a Texas Site and an Iceland Site). Each location runs its own dedicated site-level ORK kernel, but all are overseen globally by a **single App Node and/or AI Agent**.
+
+#### Architecture Flow
+
+```mermaid
+flowchart TD
+    Global[Global App Node / AI Agent]
+    
+    Global <-->|MDK Protocol via HRPC| ORK_TX[Texas ORK]
+    Global <-->|MDK Protocol via HRPC| ORK_IC[Iceland ORK]
+    
+    ORK_TX -->|Routes| W1_TX[Whatsminer Worker]
+    ORK_TX -->|Routes| W2_TX[Antminer Worker]
+    
+    ORK_IC -->|Routes| W1_IC[Whatsminer Worker]
+    ORK_IC -->|Routes| W2_IC[Avalon Worker]
+    
+    W1_TX --- D1_TX[Whatsminers]
+    W2_TX --- D2_TX[Antminers]
+    
+    W1_IC --- D1_IC[Whatsminers]
+    W2_IC --- D2_IC[Avalons]
+```
+
+The single App Node and AI Agent connect globally to all distributed ORK kernels via the native HRPC mesh (`Hyperswarm`). Parallel ORK instances remain entirely isolated from one another — they do not federate registries, share queues, or synchronize state. A crash at one site has zero impact on any other.
+
+> **Cross-Site Aggregation (TBD):** How the App Node or AI Agent aggregates data across multiple ORK instances (e.g., global hashrate) is to be determined.
