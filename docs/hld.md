@@ -72,6 +72,16 @@ graph TB
 - **Mostly Unidirectional Communication** — The *only* worker-initiated operations toward ORK are `identity.register`, `capability.declare`, and `deregister` (see §3.3). All operational comms (telemetry, state, commands) are strictly pulled downwards from ORK to worker.
 - **Generic Interface** — The interface accepted is defined dynamically at the worker level via a self-describing capabilities schema containing both structure and semantic context for AI agents.
 
+### 3.1.1 Worker Discovery Model
+
+See **[Worker Discovery Models](./worker-discovery.md)** for all details regarding how MDK proposes two discovery models (Push or Pull).
+
+> **Note:** Regardless of the discovery model chosen (Push or Pull), subsequent operational communication (telemetry, state, commands) is always **strictly pull-based** from ORK to worker.
+
+> **Note:** This document may assume Push model for the rest of the document and will be updated with minor changes once the discovery model is finalized.
+
+
+
 ### 3.2 Message envelope
 
 ```json
@@ -93,7 +103,7 @@ graph TB
 
 | Action | Type | Direction | Purpose |
 |---|---|---|---|
-| `identity.register` | request | Worker → ORK | Worker declares identity, devices, and its entire capability schema |
+| `identity.register` | request | Worker → ORK | Worker declares identity, devices, and its entire capability schema. **ORK must respond with an explicit ACK or NACK.** |
 | `deregister` | request | Worker → ORK | Worker announces graceful shutdown |
 | `state.pull` | request | ORK → Worker | Worker returns a snapshot of worker state-machine status (Low cadence tick, e.g., 60s) |
 | `telemetry.pull` | request | ORK → Worker | Worker returns device metrics plus historic metrics (Medium cadence tick, e.g., 10s) |
@@ -122,7 +132,7 @@ sequenceDiagram
     participant G as Gateway (App Node / MCP)
 
     rect rgb(40, 40, 60)
-    Note over W,O: One-Step Registration
+    Note over W,O: Registration (with ACK/Retry)
     W->>O: identity.register (schema, devices)
     O-->>W: identity.register.ack
     end
@@ -199,10 +209,13 @@ The App Node has NO hardcoded routes per device type without `thing_id` in a pat
 }
 ```
 
-**Auth:** 
-Consumers requiring standard authorization (like JWT) will use the App Node to authenticate requests before sending them to ORK via HRPC.
-
 **Routing contract:** UI/AI agents should only provide `deviceId`; ORK resolves the owning worker internally and dispatches the `command.request` without requiring consumers to know (or leak) any worker identity.
+
+#### 4.1.2 App Node Auth
+
+**JWT (Bearer Token)** is at the core of the App Node authentication loop. The App Node validates the JWT (signature, expiry, claims) before proxying any traffic into the ORK layer.
+
+**ORK Whitelisting:** The ORK kernel does not perform user-level authentication. Instead, ORK maintains a strict whitelist of approved App Node. Once whitelisted, ORK implicitly trusts the origin of the HRPC messages.
 
 ### 4.2 HRPC-Based MCP (Model Context Protocol)
 
@@ -229,7 +242,14 @@ Agents interact with ORK using the MCP Server interface. ORK exposes a tool surf
 
 **Context Format Contract:** MDK eschews separate unstructured documents for AI agents. Instead, semantic AI context (e.g., Supported Commands, Constraints, Examples) is injected directly as keys within the strict JSON capabilities schema. This ensures the programmatic definition and the reasoning context are tightly bound together.
 
-**Auth (required):** The MCP endpoint must be protected following the same whitelisting pattern used for the App Node. 
+#### 4.2.1 MCP Auth
+
+Just like the App Node, **JWT is at the core** of the MCP Server's authentication model. AI Agents must present a valid JWT to execute tools via the MCP Server. 
+
+For industry-standard guidance on securing MCP environments, refer to the [MCP Authorization Documentation](https://modelcontextprotocol.io/docs/tutorials/security/authorization).
+
+**ORK Whitelisting:** The ORK kernel does not perform user-level authentication. Instead, ORK maintains a strict whitelist of approved MCP Server. Once whitelisted, ORK implicitly trusts the origin of the HRPC messages.
+
 
 ### 4.3 ORK Kernel — Orchestration Engine
 
