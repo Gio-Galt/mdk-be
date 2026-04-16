@@ -1,6 +1,6 @@
 # MDK — High-Level Design (HLD)
 
-> **Version:** 0.2.0 &nbsp;|&nbsp; **Date:** 2026-04-02 &nbsp;|&nbsp; **Status:** Draft
+> **Version:** 0.3.0 &nbsp;|&nbsp; **Date:** 2026-04-16 &nbsp;|&nbsp; **Status:** Draft
 >
 > Derived from the [MDK Architecture Proposal] by Gio.
 
@@ -54,8 +54,8 @@ graph TB
     AI -->|"MCP Protocol"| MCPServer
     Route1 -->|"MDK (HRPC)"| ORK
     MCPServer -->|"MDK (HRPC)"| ORK
-    Workers -->|"register + declare"| ORK
-    ORK -->|"pull + command"| Workers
+    Workers -.->|"announce"| ORK
+    ORK -->|"pull (identity/schema/telemetry) + command"| Workers
     Workers -->|"device libs"| Devices
 ```
 
@@ -69,16 +69,19 @@ graph TB
 ### 3.1 Design principles
 
 - **Transport-agnostic** — identical messages over in-process calls or HRPC or API Calls
-- **Mostly Unidirectional Communication** — The *only* worker-initiated operations toward ORK are `identity.register`, `capability.declare`, and `deregister` (see §3.3). All operational comms (telemetry, state, commands) are strictly pulled downwards from ORK to worker.
+- **Mostly Unidirectional Communication** — The *only* worker-initiated operations toward static channel are announce. All operational comms (telemetry, state, commands) are strictly pulled downwards from ORK to worker.
 - **Generic Interface** — The interface accepted is defined dynamically at the worker level via a self-describing capabilities schema containing both structure and semantic context for AI agents.
 
 ### 3.1.1 Worker Discovery Model
 
-See **[Worker Discovery Models](./worker-discovery.md)** for all details regarding how MDK proposes two discovery models (Push or Pull).
+Worker discovery follows an announce-and-pull mechanism using a static communication channel:
 
-> **Note:** Regardless of the discovery model chosen (Push or Pull), subsequent operational communication (telemetry, state, commands) is always **strictly pull-based** from ORK to worker.
+1. **Announce:** The Worker publishes/announces its presence in a static channel (known universally to ORK and all Workers).
+2. **Identity Request:** The ORK kernel listens to this static channel and, upon detecting a new worker, connects and requests the worker's identity.
+3. **Registration:** After receiving the identity, ORK saves the worker and its RPC keys into its registry.
+4. **Capability Declaration:** ORK then explicitly queries the worker to declare its full capabilities (`mdk-contract.json`).
 
-> **Note:** This document may assume Push model for the rest of the document and will be updated with minor changes once the discovery model is finalized.
+> **Note:** Once discovery and registration are complete, all subsequent operational communication (telemetry, state, commands) is always **strictly pull-based** from ORK to worker.
 
 
 
@@ -103,8 +106,9 @@ See **[Worker Discovery Models](./worker-discovery.md)** for all details regardi
 
 | Action | Type | Direction | Purpose |
 |---|---|---|---|
-| `identity.register` | request | Worker → ORK | Worker declares identity, devices, and its entire capability schema. **ORK must respond with an explicit ACK or NACK.** |
-| `deregister` | request | Worker → ORK | Worker announces graceful shutdown |
+| `announce` | event | Worker → Static Channel | Worker broadcasts its presence and RPC endpoint |
+| `identity.request` | request | ORK → Worker | ORK requests the worker's identity and managed devices |
+| `capability.request` | request | ORK → Worker | ORK asks the worker to declare its full capability schema |
 | `state.pull` | request | ORK → Worker | Worker returns a snapshot of worker state-machine status (Low cadence tick, e.g., 60s) |
 | `telemetry.pull` | request | ORK → Worker | Worker returns device metrics plus historic metrics (Medium cadence tick, e.g., 10s) |
 | `command.request` | request | ORK → Worker | ORK resolves the worker by `deviceId` and dispatches the command for execution |
@@ -128,13 +132,19 @@ MDK standardizes a set of **Base Commands** that are supported by all workers::
 ```mermaid
 sequenceDiagram
     participant W as Worker
+    participant Ch as Static Channel
     participant O as ORK
     participant G as Gateway (App Node / MCP)
 
     rect rgb(40, 40, 60)
-    Note over W,O: Registration (with ACK/Retry)
-    W->>O: identity.register (schema, devices)
-    O-->>W: identity.register.ack
+    Note over W,O: Worker Discovery & Registration
+    W->>Ch: Event: Announce Presence (RPC Keys)
+    O-->>Ch: Listens & Detects Worker
+    O->>W: identity.request
+    W-->>O: identity.response (devices)
+    O->>O: Save Worker to Registry
+    O->>W: capability.request
+    W-->>O: capability.response (schema)
     end
 
     rect rgb(40, 60, 40)
@@ -331,8 +341,10 @@ For each core module, we define strict boundaries for business logic, interfaces
     ```mermaid
     stateDiagram-v2
         [*] --> Unregistered
-        Unregistered --> Ready : identity.register
-        Ready --> Terminated : deregister (or eviction)
+        Unregistered --> Discovered : Worker Announces
+        Discovered --> IdentitySaved : ORK pulls Identity
+        IdentitySaved --> Ready : ORK pulls Capabilities
+        Ready --> Terminated : eviction
         Terminated --> [*]
     ```
 *   **Crash Recovery:** Rebuilt from state, which serves as a baseline to detect workers that were registered but failed to reconnect.
@@ -417,13 +429,12 @@ On a full system crash and restart, ORK modules orchestrate recovery without use
 
 **Responsibility:** Wraps device library and exposes via MDK protocol
 
-- **Register / Deregister Only:** The *only* operations initiated by a worker to ORK are `identity.register` and `deregister` (transport is HRPC or equivalent).
-- **Single-step registration:** The worker's identity, device enumeration, and full capability schema (`mdk-contract.json`) are bundled into a single registration transmission. This guarantees fail-fast capability validation upon boot.
-- **Emergency Alert Piggybacking:** Because `identity.register` is the *only* action a worker can push to ORK, any critical hardware emergency (e.g., thermal bounds exceeded) must be pushed by re-emitting an `identity.register` payload with a special `emergencyAlert` block attached. This rigidly limits pushing to absolute emergencies.
+- **Announce Only:** The *only* operations proactively initiated by a worker towards static channel are `announce`
+- **Pull-Based Registration:** Upon hearing an announcement, ORK takes control and sequentially pulls the worker's identity (`identity.request`) and its capability schema (`capability.request`). This ensures ORK acts as the true orchestrator and protects it from incoming registration floods.
 
-##### `identity.register` — payload construction
+##### `capability.response` — payload construction
 
-The registration payload is built via the direct application of the device's `mdk-contract.json` merged with its currently managed `devices` array. During critical failures, a minimal `emergencyAlert` object is bundled into this payload.
+When ORK requests capabilities, the payload is built via the direct application of the device's `mdk-contract.json`.
 
 *Please refer to **Section 6.2** and `mdk-contract.schema.json` for the exact formulation of this schema payload (encompassing telemetry semantics, command boundaries, and AI mappings).*
 
@@ -559,7 +570,7 @@ The exhaustive JSON Validation Schema detailing exactly how this contract must b
 ### 6.3 Workflow
 1. Integrator references `mdk-contract.schema.json` to author the `mdk-contract.json`, validating strict data schemas while injecting explanations, constraints, and troubleshooting directly into the relevant nodes.
 2. Integrator implements the `src/hardware.js` translation logic.
-3. The worker instance boots, binds the static contract with dynamically discovered `devices`, and registers with ORK via `identity.register` followed by `capability.declare` (see §3.3 and §4.4).
+3. The worker instance boots, binds connects `devices/things`, and announces its presence on the static channel. ORK then pulls its identity and capabilities (see §3.3 and §4.4).
 
 ---
 
@@ -615,4 +626,41 @@ flowchart TD
 
 The single App Node and AI Agent connect globally to all distributed ORK kernels via the native HRPC mesh (`Hyperswarm`). Parallel ORK instances remain entirely isolated from one another — they do not federate registries, share queues, or synchronize state. A crash at one site has zero impact on any other.
 
-> **Cross-Site Aggregation:** Refer MDK App [hld-mdk-app.md](./hld-mdk-app.md)
+> **Cross-Site Aggregation:** Refer MDK App [hld-mdk-app.md](./hld-mdk-app.md) (To be finalized)
+
+---
+
+## 8. Extensibility & Business Logic Plugins
+
+### 8.1 Plugin & Community Requirements
+As MDK scales toward AI-driven autonomous farms, we want to empower the community to build domain-specific applications without needing deep knowledge of the MDK core.
+1. **Community-Driven Business Logic:** MDK must provide a seamless extension point for third-party developers and the community to build custom dashboards, aggregate fleet telemetry, and implement domain-specific business logic.
+2. **Plug & Play Architecture:** Adding a new device type or a custom business service must be plug-and-play, never requiring code changes from the core MDK team.
+
+### 8.2 Proposed Solutions
+
+#### 8.2.1 MDK Apps (The Extension Point)
+To resolve the rigid coupling of App Node routes and keep ORK as a pure kernel, extensible business logic is elevated to the **MDK Apps** layer.
+
+> **Read the Full Spec:** Refer to the **[MDK App High-Level Design](./hld-mdk-app.md)** for exhaustive details on this architecture.
+
+MDK Apps act as the overarching "Plugin System" on top of the generic MDK foundation, effectively splitting the stack:
+- **MDK Core (Infrastructure):** Delivers the standard MDK protocol, the HRPC mesh, the ORK execution kernel, and a generic App Node & App UI.
+- **MDK Apps (Developer-built Plugins):** External integrators package an *MDK-App Server* (which registers its domain-specific REST/WS routes dynamically onto the App Node extension hooks), and an *MDK-App Widget* (which renders inside the MDK UI Shell).
+
+When a third party connects a new device family (e.g., `acmeminer`), they ship a complete MDK Apps package along with a Device Worker. It dynamically mounts its routes and UI upon boot, ensuring **zero core team involvement** for all future platform extensions.
+ 
+---
+
+## 9. Next Steps
+
+We will begin active development on the core platform to make MDK **AI-ready** immediately.
+
+- **Core Infrastructure Priority**: We will be doing all the work to build the foundational MDK pieces right away:
+  - ORK
+  - Workers
+  - MCP
+  - Protocol
+- **MDK Apps Deferred**: We will omit the MDK Apps part for now. We will come back to build the MDK Apps and extension points after the rest of the things are ready.
+
+
