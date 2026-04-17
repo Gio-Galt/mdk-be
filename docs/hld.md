@@ -16,11 +16,18 @@ This document translates the MDK architecture proposal into a **developer-facing
 
 **"Make the common case easy, and the rare case possible — not equally easy."**
 
-A guiding principle of the MDK architecture is avoiding the trap where unbound flexibility leads to system rigidity. Highly flexible systems—often characterized by boundless dynamic configuration, implicit rules, and over-engineered abstractions meant for "every possible future use case"—inevitably accrue hidden dependencies and steep maintenance burdens. Over time, fear of breaking interconnected logic stalls development, and the resulting chaos eventually forces strict rules, culminating in a rigid platform.
+A guiding principle of the MDK architecture is avoiding the trap where unbound flexibility leads to system rigidity. Highly flexible systems—often characterized by boundless dynamic configuration, implicit rules, and over-engineered abstractions meant for "every possible future use case"—inevitably have hidden dependencies and steep maintenance burdens. Over time, fear of breaking interconnected logic stalls development, and the resulting chaos eventually forces strict rules, resulting in a rigid platform.
 
 To prevent this, MDK intentionally balances constraints:
-- **Opinionated where it must be:** Strict transport envelopes, formal unified JSON semantic schemas (`mdk-contract.json`), and clear unidirectional data flows ensure developers know exactly "how things are done."
-- **Flexible where it matters:** The translation logic residing in isolated Workers allows endless integration points for diverse external hardware without bleeding complex edge-cases back into the core orchestrator.
+- **Opinionated where it must be:** Strict transport envelopes, formal unified JSON semantic schema and clear unidirectional data flows. 
+- **Flexible where it matters:** The translation logic residing in isolated Workers allows endless integration points for any hardware without bleeding complex edge-cases back into the core orchestrator.
+
+### 1.3 Scope & Companion Documents
+
+This document covers the **MDK Core Infrastructure**, explicitly focused on the orchestration engine (ORK), the `mdk-contract` schema, worker hardware integration, and the HRPC protocol.
+
+> [!NOTE]
+> For developers building the application layer (App Nodes, Dashboards, and UI components), a completely optional, open-source SDK is available. Please see the companion document: **[MDK App Toolkit HLD (`hld-mdk-app.md`)](./hld-mdk-app.md)** for details on the headless `@mdk/ui-core`, React framework adapters, and the plug-and-play MDK-App Plugin architecture.
 
 ## 2. System Architecture
 
@@ -29,13 +36,13 @@ To prevent this, MDK intentionally balances constraints:
 ```mermaid
 graph TB
     subgraph L1["Layer 1: Consumers"]
-        UI["UI"]
+        UI["UI / Frontend"]
         AI["AI Agent"]
     end
 
-    subgraph L2["Layer 2: Gateways"]
-        Route1["App Node (POST /)"]
-        MCPServer["MCP Server"]
+    subgraph L2["Layer 2: App Node"]
+        WebApp["HTTP / API Router"]
+        MCPServer["MCP Server Endpoint"]
     end
 
     subgraph L3["Layer 3: ORK Kernel"]
@@ -50,11 +57,11 @@ graph TB
         Devices["PHYSICAL DEVICES"]
     end
 
-    UI -->|"REST"| Route1
+    UI -->|"HTTP / WebSocket"| WebApp
     AI -->|"MCP Protocol"| MCPServer
-    Route1 -->|"MDK (HRPC)"| ORK
-    MCPServer -->|"MDK (HRPC)"| ORK
-    Workers -.->|"announce"| ORK
+    WebApp -->|"@mdk/client (HRPC)"| ORK
+    MCPServer -->|"@mdk/client (HRPC)"| ORK
+    Workers -.->|"announce via static channel"| ORK
     ORK -->|"pull (identity/schema/telemetry) + command"| Workers
     Workers -->|"device libs"| Devices
 ```
@@ -120,7 +127,7 @@ To maintain structural integrity and contract stability across disparate compone
 
 ### 3.5 Base Command Set
 
-MDK standardizes a set of **Base Commands** that are supported by all workers::
+MDK standardizes a set of **Base Commands** that are supported by all workers:
 
 - `getConfig`: Retrieve current device configuration.
 - `setConfig`: Update device configuration parameters.
@@ -166,99 +173,43 @@ sequenceDiagram
 
 ## 4. Component Design
 
-### 4.1 App Node — Optional Generic API Gateway
+### 4.1 App Node — The Developer-Owned API Boundary
 
-**Responsibility:** Provides user auth and generic HTTP routes for UI. 
+**Responsibility:** The mandatory boundary between the client-facing world and the ORK kernel.
 
-**Decoupled from Thing Type & ID:** 
-The App Node has NO hardcoded routes per device type without `thing_id` in a path parameter, because the payload protocol implicitly contains the target thing's ID.
+The UI never connects to ORK directly. The App Node must sit between consumers and ORK. However, MDK does not force developers to use a generic App Node (written in a Node.js/Fastify) provided by the core team. 
 
-| URL | Direction |
-|---|---|
-| `POST /` | Single generic endpoint to communicate via the MDK Protocol. Accepts commands, telemetry reads, and capability/skill queries directly via the generic payload wrapper. |
+The App Node is a *Layer* that developers fulfill using `@mdk/client` inside their preferred framework (Fastify, Hono, Django, Go).
 
+App Node handles:
+- **Fleet aggregation:** Computes site hashrate, avg temperature, cross-rack efficiency.
+- **Auth / RBAC:** Guards all access to ORK with JWTs and session management.
+- **API Surface:** Exposes REST, WebSocket, or GraphQL to the UI.
 
+#### 4.1.1 Routing Contract
 
-#### 4.1.1 Endpoint: `POST /`
+UI/AI agents should only provide `deviceId`; the App Node (via `@mdk/client`) passes this down. ORK resolves the owning worker internally and dispatches the `command.request`.
 
-**Request:**
-- **Method:** `POST`
-- **Path:** `/`
-- **Body Content:** The full MDK Protocol message envelope.
-```json
-{
-  "id": "msg-101",
-  "version": "0.1.0",
-  "type": "request",
-  "action": "command.request",
-  "sender": "appnode:generic:01",
-  "target": "ork",
-  "deviceId": "wm001",
-  "payload": {
-    "command": "reboot",
-    "params": {}
-  }
-}
-```
-
-**Response:**
-- **Status:** `200 OK` (if action dispatched successfully)
-- **Body Content:** A correlated response message.
-```json
-{
-  "id": "msg-102",
-  "version": "0.1.0",
-  "type": "response",
-  "sender": "ork",
-  "target": "appnode:generic:01",
-  "payload": {
-    "status": "ok",
-    "data": { "rebooting": true },
-    "error": null
-  }
-}
-```
-
-**Routing contract:** UI/AI agents should only provide `deviceId`; ORK resolves the owning worker internally and dispatches the `command.request` without requiring consumers to know (or leak) any worker identity.
-
-#### 4.1.2 App Node Auth
+#### 4.1.2 Authentication
 
 **JWT (Bearer Token)** is at the core of the App Node authentication loop. The App Node validates the JWT (signature, expiry, claims) before proxying any traffic into the ORK layer.
 
-**ORK Whitelisting:** The ORK kernel does not perform user-level authentication. Instead, ORK maintains a strict whitelist of approved App Node. Once whitelisted, ORK implicitly trusts the origin of the HRPC messages.
+**ORK Whitelisting:** The ORK kernel does not perform user-level authentication. Instead, ORK maintains a strict whitelist of approved App Node/Client connections. Once whitelisted securely (e.g., via HRPC keys), ORK implicitly trusts the origin of the HRPC messages.
 
-### 4.2 HRPC-Based MCP (Model Context Protocol)
+### 4.2 MCP Server & AI Agent Integration
 
-**Responsibility:** AI/Agent connectivity into the orchestration layer.
+**Responsibility:** Secure AI/Agent connectivity into the orchestration layer.
 
-The **App Node** is truly optional—only needed for human-facing UIs that require REST routers and traditional auth middleware. 
+An AI Agent communicates with the MDK stack exclusively through the **App Node's MCP Endpoint**. An AI agent is treated as just another authenticated client.
 
-Agent-first deployments may not need it at all. 
+**Under no circumstances do AI agents connect directly to ORK.** 
+Because ORK lacks authentication, direct connections bypass all security limits. By binding the AI agent to the App Node via MCP, the agent needs to go through the same JWT validation, rate limits, RBAC as a human API consumer.
 
-The data flow architecture guarantees parity:
-- **Human UI → App Node → ORK**
-- **AI Agent → MCP Server → ORK** 
+#### 4.2.1 MCP Tool Derivation
 
-Agents interact with ORK using the MCP Server interface. ORK exposes a tool surface to the MCP Server:
+The tools exposed to the AI Agent (e.g., `list_fleet`, `get_device_telemetry`, `reboot_device`) are not hardcoded. The `@mdk/client` provides an interface to dynamically derives them from the `mdk-contract.json` of each worker.
 
-| Tool/Method | Operation | Purpose |
-|---|---|---|
-| `list_workers` | Read | Read all registered workers and their current health status |
-| `list_capabilities` | Read | Read what each worker/device can dynamically do |
-| `get_device_state` | Read | Read the current state metric snapshot of a device |
-| `get_worker_context` | Read | Fetch the schema and embedded semantic capabilities context for a specific worker type |
-| `execute_command` | Write | Dispatch a command (e.g., `reboot`, `setConfig`) through the full ORK queue pipeline |
-| `get_command_status` | Read | Poll a command's lifecycle state (QUEUED, EXECUTING, SUCCESS) |
-
-**Context Format Contract:** MDK eschews separate unstructured documents for AI agents. Instead, semantic AI context (e.g., Supported Commands, Constraints, Examples) is injected directly as keys within the strict JSON capabilities schema. This ensures the programmatic definition and the reasoning context are tightly bound together.
-
-#### 4.2.1 MCP Auth
-
-Just like the App Node, **JWT is at the core** of the MCP Server's authentication model. AI Agents must present a valid JWT to execute tools via the MCP Server. 
-
-For industry-standard guidance on securing MCP environments, refer to the [MCP Authorization Documentation](https://modelcontextprotocol.io/docs/tutorials/security/authorization).
-
-**ORK Whitelisting:** The ORK kernel does not perform user-level authentication. Instead, ORK maintains a strict whitelist of approved MCP Server. Once whitelisted, ORK implicitly trusts the origin of the HRPC messages.
+**Context Format Contract:** Semantic AI context (e.g., Supported Commands, Constraints, Examples) is injected directly as keys within the strict JSON capabilities schema (`mdk-contract.json`). This ensures the programmatic definition and the reasoning context are tightly bound together.
 
 
 ### 4.3 ORK Kernel — Orchestration Engine
@@ -432,17 +383,37 @@ On a full system crash and restart, ORK modules orchestrate recovery without use
 - **Announce Only:** The *only* operations proactively initiated by a worker towards static channel are `announce`
 - **Pull-Based Registration:** Upon hearing an announcement, ORK takes control and sequentially pulls the worker's identity (`identity.request`) and its capability schema (`capability.request`). This ensures ORK acts as the true orchestrator and protects it from incoming registration floods.
 
-##### `capability.response` — payload construction
+##### `capability.response` & Unified Contract Schema (`mdk-contract.json`)
 
-When ORK requests capabilities, the payload is built via the direct application of the device's `mdk-contract.json`.
+When ORK requests capabilities, the payload is built via the direct application of the device's `mdk-contract.json`. 
 
-*Please refer to **Section 6.2** and `mdk-contract.schema.json` for the exact formulation of this schema payload (encompassing telemetry semantics, command boundaries, and AI mappings).*
+The `mdk-contract.json` is the canonical source of truth for the worker's programmatic capabilities and AI context. MDK deliberately merges formal validations and semantic AI guidelines into this single JSON contract.
+
+- **Unified Intelligence:** Prompt-injections (like thermal safety warnings) are woven organically into standard machine fields rather than isolated in separate documents.
+  - `description` handles both human UI labeling and AI edge-case rules (e.g., *"Outlet temperature > 85C requires intervention"*).
+  - `constraints` inherently governs orchestration limits.
+  - `troubleshooting` provides if/then recovery behaviors directly alongside the payload it evaluates.
+
+*The exhaustive JSON Validation Schema detailing exactly how this contract must be built currently exists at:* **[`mdk-worker-base/mdk-contract.schema.json`](../mdk-worker-base/mdk-contract.schema.json)**
 
 - **Strict Top-Down Pull:** For all operational functions and telemetry loops, workers wait for ORK to pull data or issue commands downwards. Telemetry is never pushed.
 - **Generic Interface Mapping:** Actions are processed using a generic MDK Protocol format, translating from the strict JSON Schema boundaries into specific hardware signals.
 - **Base Command Contract:** Every worker must support a minimum baseline set of commands (e.g., `getConfig`, `setConfig`, `health`) regardless of device type, as documented in 3.5.
-- **WorkerBaseClass:** Workers should ideally inherit from a provided Base Class containing all the HRPC protocol boilerplate. This allows external integrators to focus purely on hardware translation and fulfilling their `mdk-contract.json`.
+- **Capability Declaration (`mdk-contract.json`):** Declares capabilities via `mdk-contract.json` — a single JSON file that drives ORK command validation, MCP tool generation, and UI data binding simultaneously.
+- **Subclassing `@mdk/worker-base`:** Built by subclassing `@mdk/worker-base` and implementing two methods: `onTelemetryPull` and `onCommand` — all HRPC plumbing is inherited.
 - **Source of Truth:** ORK treats the Worker as the unyielding Source of Truth for the hardware; ORK itself operates purely as a synchronized state machine or cache of that truth.
+
+### 4.5 `@mdk/client` SDK — The Universal Interface
+
+The `@mdk/client` SDK is the transport abstraction layer used to connect to ORK's gateways safely and reliably. It provides the essential glue between ORK and whatever consumer layer developers choose to build on top.
+
+**Responsibility:** Connects the MDK Protocol over native transports (HRPC or IPC) seamlessly.
+
+- **Transport Abstraction:** It handles MDK Protocol message construction, auth token validation wrapping, and reconnection logic with exponential backoff.
+- **Transport Auto-Selection:** The SDK auto-selects the transport mechanism based entirely on the URL scheme provided by the developer:
+  - `hrpc://` connects over encrypted Hyperswarm streams for remote server-to-server production.
+  - `ipc://` connects via direct local sockets for extremely low-latency local testing.
+- **Un-opinionated Framework:** Developers import the client inside their preferred language and framework (Node.js, Python, Go, etc.) to dispatch commands, subscribe to live streams, or pull status snapshots.
 
 ---
 
@@ -487,44 +458,38 @@ sequenceDiagram
     end
 ```
 
-### Scenario B: AI Agent via MCP Server
+### Scenario B: AI Agent via App Node MCP
 **Scenario:** User prompts AI Agent: "Are there any miners overheating? If so, reboot them."
 
 ```mermaid
 sequenceDiagram
     actor User
     participant AI as AI Agent (Claude)
-    participant MCP as MCP Server
+    participant Node as App Node (MCP)
     participant ORK as ORK
     participant Worker as Generic Worker
 
     User->>AI: "Are there any miners overheating? If so, reboot them."
     
     rect rgb(70, 50, 40)
-    Note over AI,ORK: Step 1: Health Discovery (Read)
-    AI->>MCP: Call tool `list_workers`
-    MCP->>ORK: HRPC Query
-    ORK-->>MCP: [Worker List + Health States + Type]
-    MCP-->>AI: Tool Result (wm002 is overheating, type: whatsminer)
-    end
-    
-    rect rgb(40, 60, 70)
-    Note over AI,ORK: Step 2: Context Discovery (Read)
-    AI->>MCP: Call tool `get_worker_context` (type: whatsminer)
-    MCP->>ORK: HRPC Query
-    ORK-->>MCP: [schema with embedded semantic context]
-    MCP-->>AI: Tool Result (Provides the JSON schema and embedded constraints for 'reboot' command)
+    Note over AI,ORK: Step 1: Fleet Discovery (Read)
+    AI->>Node: Call MCP tool `get_fleet_alerts` (Token Auth)
+    Node->>Node: Validate Agent Token & RBAC
+    Node->>ORK: HRPC Query (via @mdk/client)
+    ORK-->>Node: [Metrics]
+    Node-->>AI: Tool Result (wm002 is overheating)
     end
     
     rect rgb(40, 50, 70)
-    Note over AI,ORK: Step 3: Execution (Write)
-    AI->>MCP: Call tool `execute_command` (deviceId: wm002, command: reboot)
-    MCP->>ORK: dispatch generic protocol message
-    ORK->>ORK: Validate credentials & resolve deviceId ✓
+    Note over AI,ORK: Step 2: Execution (Write)
+    AI->>Node: Call MCP tool `reboot_device` (deviceId: wm002)
+    Node->>Node: Validate Agent Token & 'device:write' RBAC
+    Node->>ORK: dispatch generic protocol message
+    ORK->>ORK: Resolve deviceId ✓
     ORK->>Worker: command.request (HRPC)
     Worker-->>ORK: command.result
-    ORK-->>MCP: result OK
-    MCP-->>AI: Tool Result (Success)
+    ORK-->>Node: result OK
+    Node-->>AI: Tool Result (Success)
     end
     
     AI-->>User: "wm002 was overheating and has been rebooted."
@@ -553,24 +518,10 @@ A canonical device-lib worker package must follow this standard structure:
 └── package.json
 ```
 
-### 6.2 Unified Contract Schema (`mdk-contract.json`)
-
-The `mdk-contract.json` is the canonical source of truth for the worker's programmatic capabilities and AI context. MDK deliberately merges formal validations and semantic AI guidelines into this single JSON contract.
-
-- **Unified Intelligence:** Prompt-injections (like thermal safety warnings) are woven organically into standard machine fields rather than isolated in separate documents.
-  - `description` handles both human UI labeling and AI edge-case rules (e.g., *"Outlet temperature > 85C requires intervention"*).
-  - `constraints` inherently governs orchestration limits.
-  - `troubleshooting` provides if/then recovery behaviors directly alongside the payload it evaluates.
-
-The exhaustive JSON Validation Schema detailing exactly how this contract must be built currently exists at:
-**[`mdk-worker-base/mdk-contract.schema.json`](../mdk-worker-base/mdk-contract.schema.json)**
-
-*Please reference that schema file for the exact breakdown of data types and required structure.*
-
-### 6.3 Workflow
+### 6.2 Integration Workflow
 1. Integrator references `mdk-contract.schema.json` to author the `mdk-contract.json`, validating strict data schemas while injecting explanations, constraints, and troubleshooting directly into the relevant nodes.
 2. Integrator implements the `src/hardware.js` translation logic.
-3. The worker instance boots, binds connects `devices/things`, and announces its presence on the static channel. ORK then pulls its identity and capabilities (see §3.3 and §4.4).
+3. The worker instance boots, binds connects `devices`, and announces its presence on the static channel. ORK then pulls its identity and capabilities (see §3.3 and §4.4).
 
 ---
 
