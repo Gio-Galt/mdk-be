@@ -1,5 +1,7 @@
 # MDK App Toolkit — High-Level Design
 
+> **Version:** 0.2.0 &nbsp;|&nbsp; **Date:** 2026-04-18 &nbsp;|&nbsp; **Status:** In Review
+
 > **The MDK App Toolkit** is an open-source, reusable package consisting of UI primitives, framework adapters, and a plug-and-play architecture for building applications on top of the MDK.
 
 While the core MDK orchestration engine (ORK) is entirely un-opinionated and generic (see [`hld.md`](./hld.md)), the **MDK App Toolkit** provides a "batteries-included" application layer. 
@@ -14,7 +16,7 @@ Building an application on top of hardware infrastructure historically forces de
 
 2. **The UI Rigidity Trap:** Platforms try to solve Problem #1 by shipping a "UI component library." However, UI is inherently subjective. When external developers are forced to use generic components, they inevitably get locked out of customizing the CSS to match their brand, leading to abandoned toolkits and identical dashboards.
 
-3. **The Extension Bottleneck:** If an external manufacturer builds a brand new miner/device, how do they inject a custom "Dashboard Widget" and "Custom Aggregator" into an existing MDK deployment. 
+3. **The Extension Bottleneck:** If an external manufacturer builds a brand new miner/device, how do they inject a custom "Dashboard Widget" and "Custom Aggregator" into an existing MDK deployment? 
 
 ### 1.1 The Solution: A Layered Toolkit
 
@@ -36,7 +38,7 @@ The headless brain connects to the developer's **App Node API**. It manages stat
 
 
 - **Subscriptions:** Buffers rapid backend telemetry streams (e.g., max 2 renders/sec).
-- **Stale Detection:** Emits stale events if WebSockets drop for 30s.
+- **Stale Detection:** Emits stale events if the connection drops for 30s.
 - **History:** Maintains an internal ring buffer tailored for sparkline charts.
 - **Optimistic UI:** Manages command states (`pending`, `confirmed`, `failed`, `timeout`) locally before the server responds.
 
@@ -46,7 +48,7 @@ The headless brain connects to the developer's **App Node API**. It manages stat
 ### 2.2 Framework Adapters
 The `@mdk/ui-core` generates raw JavaScript state objects, which do not automatically trigger UI re-renders. To bridge this gap, the toolkit provides thin framework adapters that seamlessly translate the headless state machine into framework-native reactive lifecycles (e.g., React `useState`, Vue `ref`, Svelte stores). 
 
-By calling standardized hooks like `useTelemetry(deviceId)` or `useCommand`, a UI component automatically receives perfectly buffered, reactive data, without the developer ever touching a WebSocket or connection manager.
+By calling standardized hooks like `useTelemetry(deviceId)` or `useCommand`, a UI component automatically receives perfectly buffered, reactive data, without the developer ever touching the underlying connection or state manager.
 
 **Available Adapters:** `@mdk/react`, `@mdk/vue`, `@mdk/svelte`, `@mdk/wc` (Web Components).
 
@@ -59,15 +61,13 @@ The toolkit optionally ships styled reference components (e.g., `<DeviceTile />`
 | **A — Convenient** | Reference UI | Very little. Copy-paste standard tiles and wire up data. |
 | **B — Hooks** | Framework Adapters | Your rendering. Use MDK hooks for complex state but write your own layout. |
 | **C — Headless** | `@mdk/ui-core` | Complete state integration. Wire logic into Zustand, Redux, Pinia, etc. |
-| **D — Raw SDK** | `@mdk/client` | Everything. Bypass the App Toolkit entirely and connect your own custom UI directly to your backend Node's `@mdk/client`. |
+| **D — Raw SDK** | `@mdk/client` | Everything. Bypass the App Toolkit entirely and build your own backend + UI using `@mdk/client` for ORK connectivity. |
 
 ---
 
 ## 3. The Backend Toolkit (App Node Middleware)
 
-The App Node acts as the mandatory boundary between the web UI and the ORK kernel (managing JWT authentication, rate limits, and custom REST routes). 
-
-To ensure developers do not have to write this boiler-plate App Node from scratch, the toolkit ships with **Backend Node Middleware** that drops directly into Fastify or Express.
+To ensure developers do not have to write the App Node gateway from scratch, the toolkit ships with **Backend Node Middleware** that drops directly into Fastify or Express.
 
 ### 3.1 Generic App Node Router
 This pre-built middleware handles:
@@ -89,7 +89,7 @@ Instead of building a custom React layout and a custom Fastify server, developer
 
 ### 4.2 Writing a Plugin
 External developers then write "Plugins" consisting of two tightly-coupled pieces of code that register dynamically into the shell at runtime:
-1. **MDK-App Server:** A package of business logic that registers custom backend routes (e.g., `/mining/stats`) into the Backend Toolkit's middleware hooks. These server plugins securely interface with ORK by utilizing the **`@mdk/client`** SDK under the hood for all HRPC calls.
+1. **MDK-App Server:** A package of business logic that registers custom backend routes (e.g., `/mining/stats`) into the Backend Toolkit's middleware hooks.
 2. **MDK-App Widget:** A custom frontend React component that mounts into the MDK UI Shell's grid layout and natively queries `/mining/stats`.
 
 **Plug-and-Play Reusability:** This explicit convention ensures that an external company can build a completely new dashboard widget and backend aggregator for a new device type, publish it as a single NPM package, and allow any user to drop it into their existing MDK deployment without modifying core source code.
@@ -118,7 +118,7 @@ flowchart TD
         ROUTER -->|"translates REST to HRPC via"| CLIENT
     end
     
-    UI_CORE <-->|"HTTP / WebSockets"| ROUTER
+    UI_CORE <-->|"HTTP"| ROUTER
     CLIENT -->|"MDK Protocol"| ORK[MDK Core ORK]
     
     style UI_COMPS fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px,color:#000

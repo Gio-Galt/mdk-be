@@ -1,8 +1,8 @@
 # MDK — High-Level Design (HLD)
 
-> **Version:** 0.3.0 &nbsp;|&nbsp; **Date:** 2026-04-16 &nbsp;|&nbsp; **Status:** Draft
+> **Version:** 0.4.0 &nbsp;|&nbsp; **Date:** 2026-04-18 &nbsp;|&nbsp; **Status:** In Review
 >
-> Derived from the [MDK Architecture Proposal] by Gio.
+> Derived from the MDK Architecture Proposal by Gio.
 
 ---
 
@@ -12,7 +12,7 @@
 
 **“Make the common case easy, and the rare case possible — not equally easy.”**
 
-To prevent unbound flexibility from manifesting as system rigidity
+To prevent unbound flexibility from manifesting as system rigidity, the architecture draws a hard line between what is standardized and what is delegated.
 
 **Opinionated where needed:** strict transport envelopes, unified JSON schema, unidirectional flows
 **Flexible where it matters:** isolated Workers handle translation logic, enabling integrations without polluting the core infrastructure.
@@ -94,7 +94,7 @@ It is recommended to use **Hypercore-backed stores** (like Hyperbee) to satisfy 
 | `state.pull` | request | ORK → Worker | Worker returns a snapshot of worker state-machine status (Low cadence tick, e.g., 60s) |
 | `telemetry.pull` | request | ORK → Worker | Worker returns device metrics plus historic metrics (Medium cadence tick, e.g., 10s) |
 | `command.request` | request | ORK → Worker | ORK resolves the worker by `deviceId` and dispatches the command for execution |
-| `health.ping` | request | ORK → Worker | Liveness probe |
+| `health.ping` | request | ORK → Worker | Liveness probe (High cadence tick, e.g., 5s) |
 
 ### 3.4 Protocol Governance
 
@@ -300,7 +300,7 @@ For each core module, we define strict boundaries for business logic, interfaces
 
 ##### 5. Scheduler
 *   **Business Logic / Responsibility:** The system metronome. It triggers repetitive tasks without holding any domain-specific logic itself.
-    *   *Example:* Emits an internal `tick` event every 60 seconds which the Health Monitor listens to, prompting it to ping all workers.
+    *   *Example:* Emits an internal `tick` event every 5 seconds which the Health Monitor listens to, prompting it to ping all workers.
 *   **Interfaces:**
     *   *Input:* System clock and configured task intervals.
     *   *Output:* Injects intents (e.g., `telemetry.pull`, `health.ping`) into the Dispatcher/Collector.
@@ -320,7 +320,7 @@ For each core module, we define strict boundaries for business logic, interfaces
     *   *Example:* If the `health.ping` to a worker fails three times in a row, the Health Monitor marks the worker's status as `SICK` and tells the Registry to halt routing new commands there.
 *   **Interfaces:**
     *   *Input:* Executes `health.ping` sequentially based on Scheduler ticks.
-    *   *Output:* Pushes status updates to the Registry; escalates to Fault Supervisor if a worker dies.
+    *   *Output:* Pushes status updates to the Registry;
     *   *Functions:* `pingWorker(workerId)`, `getHealth(workerId)`
 *   **State Machine:**
     ```mermaid
@@ -381,10 +381,7 @@ The `mdk-contract.json` is the canonical source of truth for the worker's progra
 
 *The exhaustive JSON Validation Schema detailing exactly how this contract must be built currently exists at:* **[`mdk-worker-base/mdk-contract.schema.json`](../mdk-worker-base/mdk-contract.schema.json)**
 
-- **Strict Top-Down Pull:** For all operational functions and telemetry loops, workers wait for ORK to pull data or issue commands downwards. Telemetry is never pushed.
 - **Generic Interface Mapping:** Actions are processed using a generic MDK Protocol format, translating from the strict JSON Schema boundaries into specific hardware signals.
-- **Base Command Contract:** Every worker must support a minimum baseline set of commands (e.g., `getConfig`, `setConfig`, `health`) regardless of device type, as documented in 3.5.
-- **Capability Declaration (`mdk-contract.json`):** Declares capabilities via `mdk-contract.json` — a single JSON file that drives ORK command validation, MCP tool generation, and UI data binding simultaneously.
 - **Subclassing `@mdk/worker-base`:** Built by subclassing `@mdk/worker-base` and implementing two methods: `onTelemetryPull` and `onCommand` — all HRPC plumbing is inherited.
 - **Source of Truth:** ORK treats the Worker as the unyielding Source of Truth for the hardware; ORK itself operates purely as a synchronized state machine or cache of that truth.
 
@@ -394,7 +391,7 @@ The `@mdk/client` SDK is the transport abstraction layer used to connect to ORK'
 
 **Responsibility:** Connects the MDK Protocol over native transports (HRPC or IPC) seamlessly.
 
-- **Transport Abstraction:** It handles MDK Protocol message construction, auth token validation wrapping, and reconnection logic with exponential backoff.
+- **Transport Abstraction:** It handles MDK Protocol message construction and reconnection logic with exponential backoff.
 - **Transport Auto-Selection:** The SDK auto-selects the transport mechanism based entirely on the URL scheme provided by the developer:
   - `hrpc://` connects over encrypted Hyperswarm streams for remote server-to-server production.
   - `ipc://` connects via direct local sockets for extremely low-latency local testing.
@@ -493,7 +490,7 @@ External integrators build a standard worker package that wraps their device's s
 ### 6.2 Integration Workflow
 1. Integrator references `mdk-contract.schema.json` to author the `mdk-contract.json`, validating strict data schemas while injecting explanations, constraints, and troubleshooting directly into the relevant nodes.
 2. Integrator implements the `src/hardware.js` translation logic.
-3. The worker instance boots, binds connects `devices`, and announces its presence on the static channel. ORK then pulls its identity and capabilities (see §3.3 and §4.4).
+3. The worker instance boots, connects to `devices`, and announces its presence on the static channel. ORK then pulls its identity and capabilities (see §3.3 and §4.4).
 
 ---
 
@@ -555,26 +552,6 @@ Cross-site aggregation is handled purely at the App Node layer, where routes que
 
 ## 8. Extensibility & Business Logic Plugins
 
-### 8.1 Plugin & Community Requirements
-As MDK scales toward AI-driven autonomous farms, we want to empower the community to build domain-specific applications without needing deep knowledge of the MDK core.
-1. **Community-Driven Business Logic:** MDK must provide a seamless extension point for third-party developers and the community to build custom dashboards, aggregate fleet telemetry, and implement domain-specific business logic.
-2. **Plug & Play Architecture:** Adding a new device type or a custom business service must be plug-and-play, never requiring code changes from the core MDK team.
+To keep ORK as a pure execution kernel while empowering third-party developers to build domain-specific applications, extensible business logic.
 
-### 8.2 Proposed Solutions
-
-#### 8.2.1 MDK Apps (The Extension Point)
-To resolve the rigid coupling of App Node routes and keep ORK as a pure kernel, extensible business logic is elevated to the **MDK Apps** layer.
-
-> **Read the Full Spec:** Refer to the **[MDK App High-Level Design](./hld-mdk-app.md)** for exhaustive details on this architecture.
-
-MDK Apps act as the overarching "Plugin System" on top of the generic MDK foundation, effectively splitting the stack:
-- **MDK Core (Infrastructure):** Delivers the standard MDK protocol, the HRPC mesh, the ORK execution kernel, and a generic App Node & App UI.
-- **MDK Apps (Developer-built Plugins):** External integrators package an *MDK-App Server* (which registers its domain-specific REST/WS routes dynamically onto the App Node extension hooks), and an *MDK-App Widget* (which renders inside the MDK UI Shell).
-
-When a third party connects a new device family (e.g., `acmeminer`), they ship a complete MDK Apps package along with a Device Worker. It dynamically mounts its routes and UI upon boot, ensuring **zero core team involvement** for all future platform extensions.
- 
----
-
-
-
-
+> **Full Spec:** Refer to the **[MDK App Toolkit HLD](./hld-mdk-app.md)** for the complete MDK-Apps architecture, frontend toolkit, and backend middleware design.
