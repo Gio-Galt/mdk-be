@@ -8,26 +8,14 @@
 
 ## 1. Introduction
 
-### 1.1 Purpose
+### 1.1 Design Rationale: Flexibility vs. Rigidity
 
-This document translates the MDK architecture proposal into a **developer-facing High-Level Design** considering the discussion with Chetas, Gio, Hemant & Parag.
+**“Make the common case easy, and the rare case possible — not equally easy.”**
 
-### 1.2 Design Rationale: Flexibility vs. Rigidity
+To prevent unbound flexibility from manifesting as system rigidity
 
-**"Make the common case easy, and the rare case possible — not equally easy."**
-
-A guiding principle of the MDK architecture is avoiding the trap where unbound flexibility leads to system rigidity. Highly flexible systems—often characterized by boundless dynamic configuration, implicit rules, and over-engineered abstractions meant for "every possible future use case"—inevitably have hidden dependencies and steep maintenance burdens. Over time, fear of breaking interconnected logic stalls development, and the resulting chaos eventually forces strict rules, resulting in a rigid platform.
-
-To prevent this, MDK intentionally balances constraints:
-- **Opinionated where it must be:** Strict transport envelopes, formal unified JSON semantic schema and clear unidirectional data flows. 
-- **Flexible where it matters:** The translation logic residing in isolated Workers allows endless integration points for any hardware without bleeding complex edge-cases back into the core orchestrator.
-
-### 1.3 Scope & Companion Documents
-
-This document covers the **MDK Core Infrastructure**, explicitly focused on the orchestration engine (ORK), the `mdk-contract` schema, worker hardware integration, and the HRPC protocol.
-
-> [!NOTE]
-> For developers building the application layer (App Nodes, Dashboards, and UI components), a completely optional, open-source SDK is available. Please see the companion document: **[MDK App Toolkit HLD (`hld-mdk-app.md`)](./hld-mdk-app.md)** for details on the headless `@mdk/ui-core`, React framework adapters, and the plug-and-play MDK-App Plugin architecture.
+**Opinionated where needed:** strict transport envelopes, unified JSON schema, unidirectional flows
+**Flexible where it matters:** isolated Workers handle translation logic, enabling integrations without polluting the core infrastructure.
 
 ## 2. System Architecture
 
@@ -68,7 +56,7 @@ graph TB
 
 ### 2.2 Storage layer
 
-**Hyperbee** stays core to all storage requirements including in Ork, Worker or App Node for Command WAL, telemetry streams, state snapshots, and worker registry persistence.
+It is recommended to use **Hypercore-backed stores** (like Hyperbee) to satisfy all storage requirements across the ORK, Worker, and App Node layers. This inherently avoids issues with traditional centralized database.
 
 
 ## 3. MDK Protocol (v0.1.0 — Pull-Based)
@@ -78,19 +66,6 @@ graph TB
 - **Transport-agnostic** — identical messages over in-process calls or HRPC or API Calls
 - **Mostly Unidirectional Communication** — The *only* worker-initiated operations toward static channel are announce. All operational comms (telemetry, state, commands) are strictly pulled downwards from ORK to worker.
 - **Generic Interface** — The interface accepted is defined dynamically at the worker level via a self-describing capabilities schema containing both structure and semantic context for AI agents.
-
-### 3.1.1 Worker Discovery Model
-
-Worker discovery follows an announce-and-pull mechanism using a static communication channel:
-
-1. **Announce:** The Worker publishes/announces its presence in a static channel (known universally to ORK and all Workers).
-2. **Identity Request:** The ORK kernel listens to this static channel and, upon detecting a new worker, connects and requests the worker's identity.
-3. **Registration:** After receiving the identity, ORK saves the worker and its RPC keys into its registry.
-4. **Capability Declaration:** ORK then explicitly queries the worker to declare its full capabilities (`mdk-contract.json`).
-
-> **Note:** Once discovery and registration are complete, all subsequent operational communication (telemetry, state, commands) is always **strictly pull-based** from ORK to worker.
-
-
 
 ### 3.2 Message envelope
 
@@ -123,7 +98,7 @@ Worker discovery follows an announce-and-pull mechanism using a static communica
 
 ### 3.4 Protocol Governance
 
-To maintain structural integrity and contract stability across disparate components (ORK, App Node, Workers), the MDK Protocol messages are governed and validated using **Hyperschema** (https://github.com/holepunchto/hyperschema). Hyperschema aligns natively with the system's underlying Hyperbee storage, providing strict, binary-compact schema validation for every protocol message and event without the heavyweight toolchain overhead of Protobuf or gRPC.
+To maintain structural integrity and contract stability across disparate components (ORK, App Node, Workers), the MDK Protocol messages are governed and strictly validated using **Hyperschema** (https://github.com/holepunchto/hyperschema). Hyperschema also aligns natively with the system's underlying Hyperbee storage. 
 
 ### 3.5 Base Command Set
 
@@ -177,9 +152,7 @@ sequenceDiagram
 
 **Responsibility:** The mandatory boundary between the client-facing world and the ORK kernel.
 
-The UI never connects to ORK directly. The App Node must sit between consumers and ORK. However, MDK does not force developers to use a generic App Node (written in a Node.js/Fastify) provided by the core team. 
-
-The App Node is a *Layer* that developers fulfill using `@mdk/client` inside their preferred framework (Fastify, Hono, Django, Go).
+The UI never connects to ORK directly; an App Node must act as the gateway. While the MDK Protocol is completely un-opinionated and allows developers to build their own App Node using `@mdk/client` in any language (Go, Python, etc.), the **[MDK App Toolkit](./hld-mdk-app.md)** provides a drop-in, extensible Node/Fastify router to accelerate deployments.
 
 App Node handles:
 - **Fleet aggregation:** Computes site hashrate, avg temperature, cross-rack efficiency.
@@ -207,9 +180,9 @@ Because ORK lacks authentication, direct connections bypass all security limits.
 
 #### 4.2.1 MCP Tool Derivation
 
-The tools exposed to the AI Agent (e.g., `list_fleet`, `get_device_telemetry`, `reboot_device`) are not hardcoded. The `@mdk/client` provides an interface to dynamically derives them from the `mdk-contract.json` of each worker.
+The tools exposed to the AI Agent (e.g., `get_device_telemetry`, `reboot_device`) are not hardcoded. They are discovered dynamically at runtime, parsed directly from the declared capabilities (`mdk-contract.json`) of the registered workers.
 
-**Context Format Contract:** Semantic AI context (e.g., Supported Commands, Constraints, Examples) is injected directly as keys within the strict JSON capabilities schema (`mdk-contract.json`). This ensures the programmatic definition and the reasoning context are tightly bound together.
+**Context Format Contract:** Semantic AI context is injected directly as keys within the strict JSON capabilities schema. This ensures the programmatic bounds and the AI reasoning rules are tightly bound together.
 
 
 ### 4.3 ORK Kernel — Orchestration Engine
@@ -220,7 +193,9 @@ ORK is characterized by split internal modules utilizing multiple state machines
 
 #### 4.3.1 High-level Modules
 
-To ensure clear boundaries, persistence guarantees, and horizontal scalability, ORK is decomposed into distinct, single-responsibility modules. The ORK design is heavily inspired by the Node.js event loop and Kubernetes architecture, where a **pull-only model** scales exceptionally well. A push model could easily choke the receiver in high-traffic scenarios, but by strictly pulling, ORK intrinsically applies backpressure and dictates the pace of execution.
+To ensure clear boundaries and horizontal scalability, ORK is decomposed into distinct, single-responsibility modules. 
+
+The ORK design is inspired by Kubernetes architecture, heavily leveraging a **pull-only model** to bound the pace of execution without being overwhelmed.
 
 ```mermaid
 flowchart TD
@@ -380,8 +355,18 @@ On a full system crash and restart, ORK modules orchestrate recovery without use
 
 **Responsibility:** Wraps device library and exposes via MDK protocol
 
-- **Announce Only:** The *only* operations proactively initiated by a worker towards static channel are `announce`
-- **Pull-Based Registration:** Upon hearing an announcement, ORK takes control and sequentially pulls the worker's identity (`identity.request`) and its capability schema (`capability.request`). This ensures ORK acts as the true orchestrator and protects it from incoming registration floods.
+#### 4.4.1 Worker Discovery Model
+
+Worker discovery follows an announce-and-pull mechanism using a static communication channel:
+
+1. **Announce:** The Worker publishes/announces its presence in a static channel (known universally to ORK and all Workers).
+2. **Identity Request:** The ORK kernel listens to this static channel and, upon detecting a new worker, connects and requests the worker's identity.
+3. **Registration:** After receiving the identity, ORK saves the worker and its RPC keys into its registry.
+4. **Capability Declaration:** ORK then explicitly queries the worker to declare its full capabilities (`mdk-contract.json`).
+
+> **Note:** Once discovery and registration are complete, all subsequent operational communication (telemetry, state, commands) is always **strictly pull-based** from ORK to worker.
+
+#### 4.4.2 Worker Responsibilities
 
 ##### `capability.response` & Unified Contract Schema (`mdk-contract.json`)
 
@@ -503,20 +488,7 @@ To build extensibility that is genuinely straightforward, MDK defines a **strict
 
 ### 6.1 The Device-Lib Template
 
-A canonical device-lib worker package must follow this standard structure:
-
-```text
-@acme-corp/mdk-worker-acmeminer
-├── src/
-│   ├── index.js             ← Main HRPC worker entrypoint
-│   ├── hardware.js          ← Hardware integration & protocol logic (REST/SSH/etc.)
-│   └── mapping.js           ← Maps hardware responses to MDK schema
-├── test/
-│   ├── worker.spec.js       ← Unit tests for capability declarations & mapping
-│   └── hardware.mock.js     ← Mock hardware responses
-├── mdk-contract.json        ← Canonical capability schema (with embedded semantics)
-└── package.json
-```
+External integrators build a standard worker package that wraps their device's specific interaction protocols, exposing a unified interface via the `mdk-contract.json` capability schema.
 
 ### 6.2 Integration Workflow
 1. Integrator references `mdk-contract.schema.json` to author the `mdk-contract.json`, validating strict data schemas while injecting explanations, constraints, and troubleshooting directly into the relevant nodes.
@@ -577,7 +549,7 @@ flowchart TD
 
 The single App Node and AI Agent connect globally to all distributed ORK kernels via the native HRPC mesh (`Hyperswarm`). Parallel ORK instances remain entirely isolated from one another — they do not federate registries, share queues, or synchronize state. A crash at one site has zero impact on any other.
 
-> **Cross-Site Aggregation:** Refer MDK App [hld-mdk-app.md](./hld-mdk-app.md) (To be finalized)
+Cross-site aggregation is handled purely at the App Node layer, where routes query multiple workers via ORK and merge the responses before returning them to the UI or Agent.
 
 ---
 
@@ -603,15 +575,6 @@ When a third party connects a new device family (e.g., `acmeminer`), they ship a
  
 ---
 
-## 9. Next Steps
 
-We will begin active development on the core platform to make MDK **AI-ready** immediately.
-
-- **Core Infrastructure Priority**: We will be doing all the work to build the foundational MDK pieces right away:
-  - ORK
-  - Workers
-  - MCP
-  - Protocol
-- **MDK Apps Deferred**: We will omit the MDK Apps part for now. We will come back to build the MDK Apps and extension points after the rest of the things are ready.
 
 

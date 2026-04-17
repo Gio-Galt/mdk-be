@@ -9,13 +9,14 @@ It is designed to be extracted as a reusable open-source package that developers
 ## 1. Problem Statement & Motivation
 
 Building an application on top of hardware infrastructure historically forces developers to face three massive friction points:
+
 1. **The Repeated Logic Problem:** Every frontend developer integrating with backend APIs ends up reinventing the exact same boilerplate: throttling fast-moving telemetry streams, managing optimistic UI state transitions, and detecting silent communication timeouts. 
 
 2. **The UI Rigidity Trap:** Platforms try to solve Problem #1 by shipping a "UI component library." However, UI is inherently subjective. When external developers are forced to use generic components, they inevitably get locked out of customizing the CSS to match their brand, leading to abandoned toolkits and identical dashboards.
 
 3. **The Extension Bottleneck:** If an external manufacturer builds a brand new miner/device, how do they inject a custom "Dashboard Widget" and "Custom Aggregator" into an existing MDK deployment. 
 
-### The Solution: A Layered Toolkit
+### 1.1 The Solution: A Layered Toolkit
 
 The MDK App Toolkit solves these problems by decoupling logic from styling, and providing an explicit plug-and-play extension architecture:
 
@@ -24,6 +25,8 @@ The MDK App Toolkit solves these problems by decoupling logic from styling, and 
 2. It embraces the *shadcn/ui* pattern by providing reference UI components that developers can copy and paste, giving them full control over CSS and layout while still leveraging the underlying data hooks. Alternatively, it can also be installed via NPM.
 
 3. It provides the **MDK-App Plugin Architecture** — an out-of-the-box, extensible shell framework where 3rd-party frontend widgets and backend routes can be injected dynamically at runtime.
+
+
 ## 2. The Frontend Toolkit (`@mdk/ui-core` & Adapters)
 
 Rather than enforcing a monolithic UI framework, the frontend toolkit decomposes the UI SDK into three distinct layers, ensuring that business logic is never reinvented while leaving UI styling entirely under developer control.
