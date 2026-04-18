@@ -49,7 +49,7 @@ graph TB
     AI -->|"MCP Protocol"| MCPServer
     WebApp -->|"@mdk/client (HRPC)"| ORK
     MCPServer -->|"@mdk/client (HRPC)"| ORK
-    Workers -.->|"announce via static channel"| ORK
+    Workers -.->|"join known DHT topic"| ORK
     ORK -->|"pull (identity/schema/telemetry) + command"| Workers
     Workers -->|"device libs"| Devices
 ```
@@ -64,7 +64,7 @@ It is recommended to use **Hypercore-backed stores** (like Hyperbee) to satisfy 
 ### 3.1 Design principles
 
 - **Transport-agnostic** — identical messages over in-process calls or HRPC or API Calls
-- **Mostly Unidirectional Communication** — The *only* worker-initiated operations toward static channel are announce. All operational comms (telemetry, state, commands) are strictly pulled downwards from ORK to worker.
+- **Strictly Unidirectional Communication** — Workers never initiate RPC calls to ORK. They simply join a known DHT topic; ORK discovers their presence passively and initiates all subsequent communication downwards (identity, capabilities, telemetry, commands).
 - **Generic Interface** — The interface accepted is defined dynamically at the worker level via a self-describing capabilities schema containing both structure and semantic context for AI agents.
 
 ### 3.2 Message envelope
@@ -88,7 +88,7 @@ It is recommended to use **Hypercore-backed stores** (like Hyperbee) to satisfy 
 
 | Action | Type | Direction | Purpose |
 |---|---|---|---|
-| `announce` | event | Worker → Static Channel | Worker broadcasts its presence and RPC endpoint |
+| *(DHT presence)* | passive | Worker → DHT Topic | Worker joins a known Hyperswarm topic; ORK detects its peer connection automatically |
 | `identity.request` | request | ORK → Worker | ORK requests the worker's identity and managed devices |
 | `capability.request` | request | ORK → Worker | ORK asks the worker to declare its full capability schema |
 | `state.pull` | request | ORK → Worker | Worker returns a snapshot of worker state-machine status (Low cadence tick, e.g., 60s) |
@@ -114,14 +114,14 @@ MDK standardizes a set of **Base Commands** that are supported by all workers:
 ```mermaid
 sequenceDiagram
     participant W as Worker
-    participant Ch as Static Channel
+    participant DHT as DHT Topic (Hyperswarm)
     participant O as ORK
     participant G as Gateway (App Node / MCP)
 
     rect rgb(40, 40, 60)
     Note over W,O: Worker Discovery & Registration
-    W->>Ch: Event: Announce Presence (RPC Keys)
-    O-->>Ch: Listens & Detects Worker
+    W->>DHT: Joins known topic
+    O-->>DHT: Detects new peer connection
     O->>W: identity.request
     W-->>O: identity.response (devices)
     O->>O: Save Worker to Registry
@@ -152,12 +152,16 @@ sequenceDiagram
 
 **Responsibility:** The mandatory boundary between the client-facing world and the ORK kernel.
 
-The UI never connects to ORK directly; an App Node must act as the gateway. While the MDK Protocol is completely un-opinionated and allows developers to build their own App Node using `@mdk/client` in any language (Go, Python, etc.), the **[MDK App Toolkit](./hld-mdk-app.md)** provides a drop-in, extensible Node/Fastify router to accelerate deployments.
+The UI never connects to ORK directly; an App Node must act as the gateway. Developers have two paths:
+- **Direct:** Write business logic, aggregation routes, and auth directly in the App Node using `@mdk/client` in any language (Node.js, Go, Python, etc.).
+- **MDK-App Plugins:** Use the **[MDK App Toolkit](./hld-mdk-app.md)** for a drop-in Node/Fastify shell where domain-specific logic is packaged as plug-and-play MDK-App modules.
+
+Both approaches are fully supported; the choice depends on the team's preference for control vs. convention.
 
 App Node handles:
 - **Fleet aggregation:** Computes site hashrate, avg temperature, cross-rack efficiency.
 - **Auth / RBAC:** Guards all access to ORK with JWTs and session management.
-- **API Surface:** Exposes REST, WebSocket, or GraphQL to the UI.
+- **API Surface:** Exposes REST or GraphQL to the UI.
 
 #### 4.1.1 Routing Contract
 
@@ -267,7 +271,7 @@ For each core module, we define strict boundaries for business logic, interfaces
     ```mermaid
     stateDiagram-v2
         [*] --> Unregistered
-        Unregistered --> Discovered : Worker Announces
+        Unregistered --> Discovered : DHT Peer Detected
         Discovered --> IdentitySaved : ORK pulls Identity
         IdentitySaved --> Ready : ORK pulls Capabilities
         Ready --> Terminated : eviction
@@ -357,14 +361,14 @@ On a full system crash and restart, ORK modules orchestrate recovery without use
 
 #### 4.4.1 Worker Discovery Model
 
-Worker discovery follows an announce-and-pull mechanism using a static communication channel:
 
-1. **Announce:** The Worker publishes/announces its presence in a static channel (known universally to ORK and all Workers).
-2. **Identity Request:** The ORK kernel listens to this static channel and, upon detecting a new worker, connects and requests the worker's identity.
-3. **Registration:** After receiving the identity, ORK saves the worker and its RPC keys into its registry.
-4. **Capability Declaration:** ORK then explicitly queries the worker to declare its full capabilities (`mdk-contract.json`).
+1. **DHT Presence:** The Worker joins a known Hyperswarm DHT topic. It does not send any RPC messages; it simply becomes a reachable peer.
+2. **Peer Detection:** ORK continuously listens on the same DHT topic and detects the new peer connection automatically.
+3. **Identity Request:** ORK initiates the first RPC call, requesting the worker's identity and managed devices.
+4. **Registration:** After receiving the identity, ORK saves the worker and its RPC keys into its registry.
+5. **Capability Declaration:** ORK then explicitly queries the worker to declare its full capabilities (`mdk-contract.json`).
 
-> **Note:** Once discovery and registration are complete, all subsequent operational communication (telemetry, state, commands) is always **strictly pull-based** from ORK to worker.
+> **Note:** Communication is **strictly unidirectional** — ORK initiates every RPC call. Workers only ever respond.
 
 #### 4.4.2 Worker Responsibilities
 
@@ -395,7 +399,7 @@ The `@mdk/client` SDK is the transport abstraction layer used to connect to ORK'
 - **Transport Auto-Selection:** The SDK auto-selects the transport mechanism based entirely on the URL scheme provided by the developer:
   - `hrpc://` connects over encrypted Hyperswarm streams for remote server-to-server production.
   - `ipc://` connects via direct local sockets for extremely low-latency local testing.
-- **Un-opinionated Framework:** Developers import the client inside their preferred language and framework (Node.js, Python, Go, etc.) to dispatch commands, subscribe to live streams, or pull status snapshots.
+- **Major Languages Support:** `@mdk/client` will be built for all major languages (Node.js, Python, Go, etc.), allowing developers to dispatch commands, subscribe to live streams, or pull status snapshots from any stack.
 
 ---
 
@@ -490,7 +494,7 @@ External integrators build a standard worker package that wraps their device's s
 ### 6.2 Integration Workflow
 1. Integrator references `mdk-contract.schema.json` to author the `mdk-contract.json`, validating strict data schemas while injecting explanations, constraints, and troubleshooting directly into the relevant nodes.
 2. Integrator implements the `src/hardware.js` translation logic.
-3. The worker instance boots, connects to `devices`, and announces its presence on the static channel. ORK then pulls its identity and capabilities (see §3.3 and §4.4).
+3. The worker instance boots, connects to `devices`, and joins the known DHT topic. ORK detects the peer and pulls its identity and capabilities (see §3.3 and §4.4).
 
 ---
 
@@ -552,6 +556,6 @@ Cross-site aggregation is handled purely at the App Node layer, where routes que
 
 ## 8. Extensibility & Business Logic Plugins
 
-To keep ORK as a pure execution kernel while empowering third-party developers to build domain-specific applications, extensible business logic.
+To keep ORK as a pure execution kernel, all domain-specific business logic lives in the App Node layer. Developers can either write this logic directly using `@mdk/client`, or leverage the **MDK-App Plugin** pattern for a structured, plug-and-play extension model.
 
 > **Full Spec:** Refer to the **[MDK App Toolkit HLD](./hld-mdk-app.md)** for the complete MDK-Apps architecture, frontend toolkit, and backend middleware design.
