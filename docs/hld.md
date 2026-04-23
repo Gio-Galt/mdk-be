@@ -372,7 +372,7 @@ On a full system crash and restart, ORK modules orchestrate recovery without use
 
 #### 4.4.2 Worker Responsibilities
 
-##### `capability.response` & Unified Contract Schema (`mdk-contract.json`)
+##### `capability.response` & Unified Contract Schema ([`mdk-contract.json`](./mdk-contract.json))
 
 When ORK requests capabilities, the payload is built via the direct application of the device's `mdk-contract.json`. 
 
@@ -383,7 +383,7 @@ The `mdk-contract.json` is the canonical source of truth for the worker's progra
   - `constraints` inherently governs orchestration limits.
   - `troubleshooting` provides if/then recovery behaviors directly alongside the payload it evaluates.
 
-*The exhaustive JSON Validation Schema detailing exactly how this contract must be built currently exists at:* **[`mdk-worker-base/mdk-contract.schema.json`](../mdk-worker-base/mdk-contract.schema.json)**
+*The exhaustive JSON Validation Schema detailing exactly how this contract must be built currently exists at:* **[`mdk-contract.schema.json`](./mdk-contract.schema.json)**
 
 - **Generic Interface Mapping:** Actions are processed using a generic MDK Protocol format, translating from the strict JSON Schema boundaries into specific hardware signals.
 - **Subclassing `@mdk/worker-base`:** Built by subclassing `@mdk/worker-base` and implementing two methods: `onTelemetryPull` and `onCommand` — all HRPC plumbing is inherited.
@@ -492,7 +492,7 @@ To build extensibility that is genuinely straightforward, MDK defines a **strict
 External integrators build a standard worker package that wraps their device's specific interaction protocols, exposing a unified interface via the `mdk-contract.json` capability schema.
 
 ### 6.2 Integration Workflow
-1. Integrator references `mdk-contract.schema.json` to author the `mdk-contract.json`, validating strict data schemas while injecting explanations, constraints, and troubleshooting directly into the relevant nodes.
+1. Integrator references [`mdk-contract.schema.json`](./mdk-contract.schema.json) to author the [`mdk-contract.json`](./mdk-contract.json), validating strict data schemas while injecting explanations, constraints, and troubleshooting directly into the relevant nodes.
 2. Integrator implements the `src/hardware.js` translation logic.
 3. The worker instance boots, connects to `devices`, and joins the known DHT topic. ORK detects the peer and pulls its identity and capabilities (see §3.3 and §4.4).
 

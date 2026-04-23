@@ -1,0 +1,75 @@
+{
+  "$schema": "../mdk-worker-base/mdk-contract.schema.json",
+  "metadata": {
+    "provider": "microbt",
+    "deviceFamily": "miner",
+    "brand": "Whatsminer",
+    "modelsSupported": ["M30S", "M50S", "M56S", "M60S"],
+    "overview": "Provides orchestration capabilities to control and read data from MicroBT Whatsminer Bitcoin miners. Operations here effect physical hardware. Always prioritize thermal safety and verify telemetry changes after issuing commands."
+  },
+  "devices": [],
+  "capabilities": {
+    "telemetry": [
+      { "name": "hashrate_rt", "unit": "TH/s", "type": "number", "description": "Real-time hashrate. A value of 0 implies the miner is offline, booting, or experiencing a catastrophic failure." },
+      { "name": "hashrate_avg", "unit": "TH/s", "type": "number", "description": "Average hashrate." },
+      { "name": "power_draw", "unit": "W", "type": "number", "description": "Current power draw. If dramatically lower than the current limit_watts, a hashboard might be dead." },
+      { "name": "temperature_in", "unit": "C", "type": "number", "description": "Ambient air temperature entering the miner." },
+      { "name": "temperature_out", "unit": "C", "type": "number", "description": "Outlet temperature. Critical metric. If this exceeds 85C reliably, intervention is required." },
+      { "name": "fan_speed_in", "unit": "RPM", "type": "number", "description": "Inlet fan speed. Below 2000 RPM usually indicates a broken fan." },
+      { "name": "fan_speed_out", "unit": "RPM", "type": "number", "description": "Outlet fan speed. Below 2000 RPM usually indicates a broken fan." }
+    ],
+    "commands": [
+      {
+        "name": "reboot",
+        "description": "Safely restarts the controller. Takes approx 2-3 minutes for the dashboard to respond again.",
+        "constraints": "Do not call sequentially within 5 minutes. Never issue this command more than once in a 15-minute window. Allow time for the boot telemetry to settle.",
+        "params": []
+      },
+      {
+        "name": "setPowerLimit",
+        "description": "Adjusts PSU output.",
+        "constraints": "Never set below 2000W or hashboards may fail to initialize. Max is usually model-dependent (up to 3500W-4000W).",
+        "examples": [
+          {
+            "intent": "Optimize for low power or thermal limiting during a hot day",
+            "steps": [
+              "1. Verify temperature_out > 75C.",
+              "2. Call setPowerLimit with limit_watts: 2800",
+              "3. Wait 60 seconds.",
+              "4. Verify power curve stabilizes."
+            ]
+          }
+        ],
+        "params": [
+          { "name": "limit_watts", "type": "number", "min": 2000, "max": 4000 }
+        ]
+      },
+      {
+        "name": "setPools",
+        "description": "Updates the primary mining pool configuration.",
+        "params": [
+          { "name": "pool1_url", "type": "string" },
+          { "name": "pool1_user", "type": "string" },
+          { "name": "pool1_pass", "type": "string" }
+        ]
+      }
+    ],
+    "config": {
+      "schema": "whatsminer_config_v1"
+    },
+    "health": {
+      "supportedStates": ["OK", "DEGRADED", "OFFLINE"],
+      "alerts": ["alert.overheat", "alert.fan_failure", "alert.psu_failure", "alert.hashrate_low"],
+      "troubleshooting": [
+        "If alert.overheat or E_TEMP_HIGH is reported, verify fan_speed_in and fan_speed_out. A fan speed of 0 is a mechanical failure.",
+        "If alert.hashrate_low triggers, the miner might be tuning its boards (expected after an environment or power change, wait ~15 minutes).",
+        "If status is OFFLINE, do not attempt to run 'reboot' as the telemetry layer cannot reach the device. Escalate to human operator."
+      ]
+    },
+    "errors": {
+      "E_TEMP_HIGH": "Chip temperature exceeded safe thresholds",
+      "E_FAN_FAIL": "Fan RPM below required threshold",
+      "E_PSU_ERR": "Power supply unit report error or unstable output"
+    }
+  }
+}
