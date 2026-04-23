@@ -52,8 +52,16 @@ By calling standardized hooks like `useTelemetry(deviceId)` or `useCommand`, a U
 
 **Available Adapters:** `@mdk/react`, `@mdk/vue`, `@mdk/svelte`, `@mdk/wc` (Web Components).
 
-### 2.3 Reference UI (shadcn-style)
+### 2.3 Reference UI
 The toolkit optionally ships styled reference components (e.g., `<DeviceTile />`). Rather than `npm install`, these follow the **shadcn/ui** pattern: they are copy-pasted into the developer's source tree. Developers own the styling completely.
+
+#### 2.3.1 `@mdk/ui-devkit-react`
+For React, **`@mdk/ui-devkit-react`** — a production-tested component library is available as a ready-made implementation of this layer. Key highlights:
+- 100+ production-tested components
+- Built on React 19, shadcn/ui
+- Zero CSS-in-JS runtime overhead
+
+UI kits for other frameworks (Vue, Svelte, etc.) may be built in the future as demand arises.
 
 ### 2.4 Developer Entry Points Matrix
 | Option | Entry Point | You Control |
@@ -102,7 +110,7 @@ External developers then write "Plugins" consisting of two tightly-coupled piece
 flowchart TD
     subgraph "Frontend Layer (Browser Toolkit)"
         direction TB
-        UI_COMPS["Reference UI / Shell<br/>(shadcn components, Widget Plugins)"]
+        UI_COMPS["Reference UI / Shell<br/>(@mdk/ui-devkit-react)"]
         FRAMEWORKS["Framework Adapters<br/>(@mdk/react, @mdk/vue)"]
         UI_CORE["@mdk/ui-core<br/>(Headless Buffer & API Client)"]
         
