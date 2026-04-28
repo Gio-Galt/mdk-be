@@ -54,7 +54,7 @@ no manual intervention required. All data is stored in crash-resilient, append-o
 
 ### The universal SDK
 
-`@mdk/client` is the universal SDK, a connection library that applications use to talk to ORK. It serves as a universal adapter: handling all the connection details 
+`@tetherto/mdk-client` is the universal SDK, a connection library that applications use to talk to ORK. It serves as a universal adapter: handling all the connection details 
 so developers can focus on building their application.
 
 - **Multi-language support**: available for Node.js, Python, Go, and more; use whatever language your team prefers
@@ -66,10 +66,10 @@ so developers can focus on building their application.
 For teams that want to ship fast, the [**MDK App Toolkit**](./hld-mdk-app.md) provides an optional, batteries-included application layer 
 on top of ORK:
 
-- **`@mdk/ui-core`**: the headless core. Pre-built state management that handles real-time data streams, connection drops, and loading states automatically. 
+- **`@tetherto/mdk-ui-core`**: the headless core. Pre-built state management that handles real-time data streams, connection drops, and loading states automatically. 
 Includes optimistic UI: actions feel instant in the interface even before the server confirms. Framework-agnostic by design.
-- **Framework adapters**: thin wrappers that plug `@mdk/ui-core` into your UI framework: `@mdk/react`, `@mdk/vue`, `@mdk/svelte`, `@mdk/wc` (Web Components).
-- **`@mdk/ui-devkit-react`**: a production-tested React component library with 100+ components for building mining dashboards instantly. 
+- **Framework adapters**: thin wrappers that plug `@tetherto/mdk-ui-core` into your UI framework: `@tetherto/mdk-react`, `@tetherto/mdk-vue`, `@tetherto/mdk-svelte`, `@tetherto/mdk-wc` (Web Components).
+- **`@tetherto/mdk-ui-devkit-react`**: a production-tested React component library with 100+ components for building mining dashboards instantly. 
 Components follow a copy-paste model (inspired by shadcn/ui); you own the code and the styling completely.
 - **Plugin system**: third-party developers can package custom dashboards and backend logic as drop-in modules; no core code changes needed.
 
@@ -83,7 +83,7 @@ graph TB
     end
 
     subgraph appNode ["<b>App Node</b>"]
-        APP["Your application server<br/>(auth, business logic, fleet aggregation)<br/>connects via <code>@mdk/client</code>"]
+        APP["Your application server<br/>(auth, business logic, fleet aggregation)<br/>connects via <code>@tetherto/mdk-client</code>"]
     end
 
     subgraph orkKernel ["<b>ORK kernel</b>"]
@@ -114,7 +114,7 @@ graph TB
 - **ORK is the kernel.** Everything above it (dashboards, business logic, AI) is built by you.
 - **The App Node is your secure gateway.** All user authentication (JWT), role-based access control (RBAC), and fleet-wide aggregation happen here, keeping 
 ORK secure and focused.
-- **Two buid paths**: write custom business logic directly in the App Node using `@mdk/client`, or use the MDK App Toolkit's plug-and-play shell. Both 
+- **Two buid paths**: write custom business logic directly in the App Node using `@tetherto/mdk-client`, or use the MDK App Toolkit's plug-and-play shell. Both 
 are fully supported.
 - **Devices are the source of truth.** The actual hardware state is reported by the Worker to ORK; ORK orchestrates the synchronized view.
 
@@ -177,12 +177,12 @@ MDK scales naturally without architectural changes:
 | Component | What it does |
 |---|---|
 | ORK | Central coordination: routes commands, collects data, monitors health |
-| `@mdk/client` | Universal SDK for connecting applications to ORK (Node.js, Python, Go) |
+| `@tetherto/mdk-client` | Universal SDK for connecting applications to ORK (Node.js, Python, Go) |
 | MDK Protocol | The common language all components speak: standardized messages for discovery, telemetry, commands, and health |
-| App Toolkit | Optional UI components, framework adapters, and the `@mdk/ui-devkit-react` component library |
+| App Toolkit | Optional UI components, framework adapters, and the `@tetherto/mdk-ui-devkit-react` component library |
 | Plugins | Drop-in extensions for custom dashboards and backend logic |
 
-{/* todo decide how to fix: row 4 is @mdk/ui-devkit-react saying that component library is React-only  while adapters list Vue/Svelte and the SDK is multi-language; */}
+{/* todo decide how to fix: row 4 is @tetherto/mdk-ui-devkit-react saying that component library is React-only  while adapters list Vue/Svelte and the SDK is multi-language; */}
 
 ## Next steps
 
