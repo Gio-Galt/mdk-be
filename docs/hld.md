@@ -47,12 +47,13 @@ graph TB
 
     UI -->|"HTTP / WebSocket"| WebApp
     AI -->|"MCP Protocol"| MCPServer
-    WebApp -->|"@mdk/client (HRPC)"| ORK
-    MCPServer -->|"@mdk/client (HRPC)"| ORK
+    WebApp -->|"@tetherto/mdk-client (HRPC)"| ORK
+    MCPServer -->|"@tetherto/mdk-client (HRPC)"| ORK
     Workers -.->|"join known DHT topic"| ORK
     ORK -->|"pull (identity/schema/telemetry) + command"| Workers
     Workers -->|"device libs"| Devices
 ```
+
 
 ### 2.2 Storage layer
 
@@ -153,7 +154,7 @@ sequenceDiagram
 **Responsibility:** The mandatory boundary between the client-facing world and the ORK kernel.
 
 The UI never connects to ORK directly; an App Node must act as the gateway. Developers have two paths:
-- **Direct:** Write business logic, aggregation routes, and auth directly in the App Node using `@mdk/client` in any language (Node.js, Go, Python, etc.).
+- **Direct:** Write business logic, aggregation routes, and auth directly in the App Node using `@tetherto/mdk-client` in any language (Node.js, Go, Python, etc.).
 - **MDK-App Plugins:** Use the **[MDK App Toolkit](./hld-mdk-app.md)** for a drop-in Node/Fastify shell where domain-specific logic is packaged as plug-and-play MDK-App modules.
 
 Both approaches are fully supported; the choice depends on the team's preference for control vs. convention.
@@ -165,7 +166,7 @@ App Node handles:
 
 #### 4.1.1 Routing Contract
 
-UI/AI agents should only provide `deviceId`; the App Node (via `@mdk/client`) passes this down. ORK resolves the owning worker internally and dispatches the `command.request`.
+UI/AI agents should only provide `deviceId`; the App Node (via `@tetherto/mdk-client`) passes this down. ORK resolves the owning worker internally and dispatches the `command.request`.
 
 #### 4.1.2 Authentication
 
@@ -190,6 +191,10 @@ The tools exposed to the AI Agent (e.g., `get_device_telemetry`, `reboot_device`
 
 
 ### 4.3 ORK Kernel — Orchestration Engine
+
+> [!NOTE]
+> **Package Naming Convention:** The orchestration layer is explicitly distributed as **`@tetherto/mdk-ork`** rather than `@tetherto/mdk-core`. The term "core" is highly ambiguous in monorepos and can be confused with shared utilities, transport SDKs, or frontend UI components. By using `@tetherto/mdk-ork`, the package maps 1:1 with the architectural diagrams, making it instantly clear to developers that this is the standalone Orchestration Kernel daemon.
+
 
 **Responsibility:** Trusted coordination kernel. 
 
@@ -386,12 +391,12 @@ The `mdk-contract.json` is the canonical source of truth for the worker's progra
 *The exhaustive JSON Validation Schema detailing exactly how this contract must be built currently exists at:* **[`mdk-contract.schema.json`](./mdk-contract.schema.json)**
 
 - **Generic Interface Mapping:** Actions are processed using a generic MDK Protocol format, translating from the strict JSON Schema boundaries into specific hardware signals.
-- **Subclassing `@mdk/worker-base`:** Built by subclassing `@mdk/worker-base` and implementing two methods: `onTelemetryPull` and `onCommand` — all HRPC plumbing is inherited.
+- **Subclassing `@tetherto/mdk-worker-base`:** Built by subclassing `@tetherto/mdk-worker-base` and implementing two methods: `onTelemetryPull` and `onCommand` — all HRPC plumbing is inherited.
 - **Source of Truth:** ORK treats the Worker as the unyielding Source of Truth for the hardware; ORK itself operates purely as a synchronized state machine or cache of that truth.
 
-### 4.5 `@mdk/client` SDK — The Universal Interface
+### 4.5 `@tetherto/mdk-client` SDK — The Universal Interface
 
-The `@mdk/client` SDK is the transport abstraction layer used to connect to ORK's gateways safely and reliably. It provides the essential glue between ORK and whatever consumer layer developers choose to build on top.
+The `@tetherto/mdk-client` SDK is the transport abstraction layer used to connect to ORK's gateways safely and reliably. It provides the essential glue between ORK and whatever consumer layer developers choose to build on top.
 
 **Responsibility:** Connects the MDK Protocol over native transports (HRPC or IPC) seamlessly.
 
@@ -399,7 +404,7 @@ The `@mdk/client` SDK is the transport abstraction layer used to connect to ORK'
 - **Transport Auto-Selection:** The SDK auto-selects the transport mechanism based entirely on the URL scheme provided by the developer:
   - `hrpc://` connects over encrypted Hyperswarm streams for remote server-to-server production.
   - `ipc://` connects via direct local sockets for extremely low-latency local testing.
-- **Major Languages Support:** `@mdk/client` will be built for all major languages (Node.js, Python, Go, etc.), allowing developers to dispatch commands, subscribe to live streams, or pull status snapshots from any stack.
+- **Major Languages Support:** `@tetherto/mdk-client` will be built for all major languages (Node.js, Python, Go, etc.), allowing developers to dispatch commands, subscribe to live streams, or pull status snapshots from any stack.
 
 ---
 
@@ -461,7 +466,7 @@ sequenceDiagram
     Note over AI,ORK: Step 1: Fleet Discovery (Read)
     AI->>Node: Call MCP tool `get_fleet_alerts` (Token Auth)
     Node->>Node: Validate Agent Token & RBAC
-    Node->>ORK: HRPC Query (via @mdk/client)
+    Node->>ORK: HRPC Query (via @tetherto/mdk-client)
     ORK-->>Node: [Metrics]
     Node-->>AI: Tool Result (wm002 is overheating)
     end
@@ -556,6 +561,6 @@ Cross-site aggregation is handled purely at the App Node layer, where routes que
 
 ## 8. Extensibility & Business Logic Plugins
 
-To keep ORK as a pure execution kernel, all domain-specific business logic lives in the App Node layer. Developers can either write this logic directly using `@mdk/client`, or leverage the **MDK-App Plugin** pattern for a structured, plug-and-play extension model.
+To keep ORK as a pure execution kernel, all domain-specific business logic lives in the App Node layer. Developers can either write this logic directly using `@tetherto/mdk-client`, or leverage the **MDK-App Plugin** pattern for a structured, plug-and-play extension model.
 
 > **Full Spec:** Refer to the **[MDK App Toolkit HLD](./hld-mdk-app.md)** for the complete MDK-Apps architecture, frontend toolkit, and backend middleware design.

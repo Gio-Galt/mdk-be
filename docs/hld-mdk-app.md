@@ -6,7 +6,7 @@
 
 While the core MDK orchestration engine (ORK) is entirely un-opinionated and generic (see [`hld.md`](./hld.md)), the **MDK App Toolkit** provides a "batteries-included" application layer. 
 
-It is designed to be extracted as a reusable open-source package that developers can plug into their own Node.js + Fastify + React stacks (leveraging the low-level **`@mdk/client`** for ORK connectivity) to get a dashboard running immediately.
+It is designed to be extracted as a reusable open-source package that developers can plug into their own Node.js + Fastify + React stacks (leveraging the low-level **`@tetherto/mdk-client`** for ORK connectivity) to get a dashboard running immediately.
 
 ## 1. Problem Statement & Motivation
 
@@ -22,18 +22,18 @@ Building an application on top of hardware infrastructure historically forces de
 
 The MDK App Toolkit solves these problems by decoupling logic from styling, and providing an explicit plug-and-play extension architecture:
 
-1. It extracts all complex API state and caching logic (e.g., handling server disconnects and buffering data from the App Node Gateway) into a purely **Headless Layer** (`@mdk/ui-core`).
+1. It extracts all complex API state and caching logic (e.g., handling server disconnects and buffering data from the App Node Gateway) into a purely **Headless Layer** (`@tetherto/mdk-ui-core`).
 
 2. It embraces the *shadcn/ui* pattern by providing reference UI components that developers can copy and paste, giving them full control over CSS and layout while still leveraging the underlying data hooks. Alternatively, it can also be installed via NPM.
 
 3. It provides the **MDK-App Plugin Architecture** — an out-of-the-box, extensible shell framework where 3rd-party frontend widgets and backend routes can be injected dynamically at runtime.
 
 
-## 2. The Frontend Toolkit (`@mdk/ui-core` & Adapters)
+## 2. The Frontend Toolkit (`@tetherto/mdk-ui-core` & Adapters)
 
 Rather than enforcing a monolithic UI framework, the frontend toolkit decomposes the UI SDK into three distinct layers, ensuring that business logic is never reinvented while leaving UI styling entirely under developer control.
 
-### 2.1 Headless Core (`@mdk/ui-core`)
+### 2.1 Headless Core (`@tetherto/mdk-ui-core`)
 The headless brain connects to the developer's **App Node API**. It manages stateful logic that every UI needs but renders nothing.
 
 
@@ -46,30 +46,87 @@ The headless brain connects to the developer's **App Node API**. It manages stat
 
 
 ### 2.2 Framework Adapters
-The `@mdk/ui-core` generates raw JavaScript state objects, which do not automatically trigger UI re-renders. To bridge this gap, the toolkit provides thin framework adapters that seamlessly translate the headless state machine into framework-native reactive lifecycles (e.g., React `useState`, Vue `ref`, Svelte stores). 
+The `@tetherto/mdk-ui-core` generates raw JavaScript state objects, which do not automatically trigger UI re-renders. To bridge this gap, the toolkit provides thin framework adapters that seamlessly translate the headless state machine into framework-native reactive lifecycles (e.g., React `useState`, Vue `ref`, Svelte stores). 
 
 By calling standardized hooks like `useTelemetry(deviceId)` or `useCommand`, a UI component automatically receives perfectly buffered, reactive data, without the developer ever touching the underlying connection or state manager.
 
-**Available Adapters:** `@mdk/react`, `@mdk/vue`, `@mdk/svelte`, `@mdk/wc` (Web Components).
+**Available Adapters:** `@tetherto/mdk-react`, `@tetherto/mdk-vue`, `@tetherto/mdk-svelte`, `@tetherto/mdk-wc` (Web Components).
 
 ### 2.3 Reference UI
-The toolkit optionally ships styled reference components (e.g., `<DeviceTile />`). Rather than `npm install`, these follow the **shadcn/ui** pattern: they are copy-pasted into the developer's source tree. Developers own the styling completely.
 
-#### 2.3.1 `@mdk/ui-devkit-react`
-For React, **`@mdk/ui-devkit-react`** — a production-tested component library is available as a ready-made implementation of this layer. Key highlights:
-- 100+ production-tested components
-- Built on React 19, shadcn/ui
-- Zero CSS-in-JS runtime overhead
+The toolkit optionally ships styled reference components (e.g., `<DeviceTile />`). Developers own the styling completely, with **no Tailwind dependency** required in the host application.
+
+#### 2.3.1 `@tetherto/mdk-ui-devkit-react`
+For React, **`@tetherto/mdk-ui-devkit-react`** — a production-tested component library available as a standard NPM package. Key highlights:
+- Production-tested MDK-specific components (e.g., `<DeviceTile />`, `<TelemetryChart />`, `<CommandButton />`)
+- Built on React 19 + Radix UI primitives; ships pre-compiled CSS
+- Zero CSS-in-JS runtime overhead — host app does not need Tailwind
 
 UI kits for other frameworks (Vue, Svelte, etc.) may be built in the future as demand arises.
+
+#### 2.3.2 CSS Customization Model
+
+All `@tetherto/mdk-ui-devkit-react` components support **three progressive levels** of style override, so developers can customize as much or as little as needed:
+
+**Level 1 — Global Theme (CSS Custom Properties)**
+
+All visual design tokens are exposed as CSS Custom Properties. Overriding your brand colors or spacing globally is a one-liner:
+
+```css
+/* In your app's global CSS */
+:root {
+  --mdk-color-primary: #7c3aed;
+  --mdk-color-danger:  #dc2626;
+  --mdk-radius-tile:   12px;
+  --mdk-font-mono:     'JetBrains Mono', monospace;
+}
+```
+
+**Level 2 — Per-Instance Override (`className` prop)**
+
+Every component accepts a standard `className` prop merged onto its root element. Use your own CSS class or inline CSS Modules:
+
+```tsx
+// Your CSS: .my-tile { border: 2px solid gold; }
+<DeviceTile deviceId="wm001" className="my-tile" />
+```
+
+**Level 3 — Sub-Part Targeting (`classNames` prop)**
+
+Complex components expose named slots via a `classNames` prop, following the Radix UI pattern. This allows scoped overrides of internal parts without fighting specificity:
+
+```tsx
+<DeviceTile
+  deviceId="wm001"
+  classNames={{
+    root:   'my-tile-root',
+    header: 'my-tile-header',
+    metric: 'my-tile-metric',
+  }}
+/>
+```
+
+**CSS `@layer` — Host Styles Always Win**
+
+All MDK component default styles are declared inside a `@layer mdk` block. This guarantees that any unlayered style in the host application automatically wins, with no need for `!important`:
+
+```css
+/* MDK internals (inside the package) */
+@layer mdk {
+  .mdk-tile { background: #1e1e2e; }
+}
+
+/* Host app — this automatically overrides, no !important needed */
+.mdk-tile { background: white; }
+```
 
 ### 2.4 Developer Entry Points Matrix
 | Option | Entry Point | You Control |
 |---|---|---|
 | **A — Convenient** | Reference UI | Very little. Copy-paste standard tiles and wire up data. |
 | **B — Hooks** | Framework Adapters | Your rendering. Use MDK hooks for complex state but write your own layout. |
-| **C — Headless** | `@mdk/ui-core` | Complete state integration. Wire logic into Zustand, Redux, Pinia, etc. |
-| **D — Raw SDK** | `@mdk/client` | Everything. Bypass the App Toolkit entirely and build your own backend + UI using `@mdk/client` for ORK connectivity. |
+| **C — Headless** | `@tetherto/mdk-ui-core` | Complete state integration. Wire logic into Zustand, Redux, Pinia, etc. |
+| **D — Raw SDK** | `@tetherto/mdk-client` | Everything. Bypass the App Toolkit entirely and build your own backend + UI using `@tetherto/mdk-client` for ORK connectivity. |
 
 ---
 
@@ -81,10 +138,10 @@ To ensure developers do not have to write the App Node gateway from scratch, the
 This pre-built middleware handles:
 - Exposing standard `/auth` endpoints.
 - Validating incoming user JWTs.
-- Proxying commands securely down to ORK over HRPC using the `@mdk/client`.
+- Proxying commands securely down to ORK over HRPC using the `@tetherto/mdk-client`.
 
 ### 3.2 Route Extension Aggregation
-The middleware provides hooks allowing developers to easily bind new REST or WebSocket endpoints (e.g., `POST /mining/stats`) that perform complex aggregations using ORK capabilities via **`@mdk/client`**.
+The middleware provides hooks allowing developers to easily bind new REST or WebSocket endpoints (e.g., `POST /mining/stats`) that perform complex aggregations using ORK capabilities via **`@tetherto/mdk-client`**.
 
 ---
 
@@ -110,9 +167,9 @@ External developers then write "Plugins" consisting of two tightly-coupled piece
 flowchart TD
     subgraph "Frontend Layer (Browser Toolkit)"
         direction TB
-        UI_COMPS["Reference UI / Shell<br/>(@mdk/ui-devkit-react)"]
-        FRAMEWORKS["Framework Adapters<br/>(@mdk/react, @mdk/vue)"]
-        UI_CORE["@mdk/ui-core<br/>(Headless Buffer & API Client)"]
+        UI_COMPS["Reference UI / Shell<br/>(@tetherto/mdk-ui-devkit-react)"]
+        FRAMEWORKS["Framework Adapters<br/>(@tetherto/mdk-react, @tetherto/mdk-vue)"]
+        UI_CORE["@tetherto/mdk-ui-core<br/>(Headless Buffer & API Client)"]
         
         UI_COMPS -->|"consumes reactive hooks"| FRAMEWORKS
         FRAMEWORKS -->|"wraps JS state logic"| UI_CORE
@@ -121,7 +178,7 @@ flowchart TD
     subgraph "Backend Layer (App Node Toolkit)"
         direction TB
         ROUTER["App Node Router & Middleware<br/>(Express/Fastify, JWT Auth, API Plugins)"]
-        CLIENT["@mdk/client<br/>(Isolated Native SDK)"]
+        CLIENT["@tetherto/mdk-client<br/>(Isolated Native SDK)"]
         
         ROUTER -->|"translates REST to HRPC via"| CLIENT
     end
