@@ -1,0 +1,14 @@
+{
+  "name": "mdk-be-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "mdk-worker-base",
+    "mdk-worker-whatsminer",
+    "mdk-app-example"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

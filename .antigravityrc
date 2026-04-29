@@ -1,0 +1,6 @@
+{
+  "exclude": [
+    "docs/.ignore",
+    "sample-code"
+  ]
+}

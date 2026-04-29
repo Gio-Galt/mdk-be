@@ -1,0 +1,14 @@
+{
+  "name": "@mdk/client",
+  "version": "1.0.0",
+  "description": "MDK Client SDK for abstracting protocol transport to the ORK Kernel.",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "events": "^3.3.0",
+    "uuid": "^9.0.1"
+  }
+}
