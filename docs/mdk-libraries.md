@@ -41,8 +41,8 @@ Short glossary for MDK docs and code. **Surface** follows the HLD stack (consume
 | **MDK-App Widget** | Frontend React component supplied by a Plugin; mounts into the App Shell grid and queries the paired MDK-App Server route. See [MDK App HLD](./hld-mdk-app.md). | FE |
 | **MDK-App Server** | Backend route package supplied by a Plugin; injects custom API endpoints into the App Node middleware at runtime. See [MDK App HLD](./hld-mdk-app.md). | BE |
 | **ui-client** / **mdk-ui-core** | Headless browser client — no React. Folder name `ui-client`; package name stays `@tetherto/mdk-ui-core`. | FE |
-| **mdk-react** | Thin React bindings over `mdk-ui-core`. | FE |
-| **mdk-ui-devkit-react** | Radix-based React component library for dashboards. | FE |
+| **mdk-react-adapter** | Thin React bindings over `mdk-ui-core`. | FE |
+| **mdk-react-devkit** | Radix-based React component library for dashboards. | FE |
 
 ---
 
@@ -57,8 +57,8 @@ See the legend above for what each package conceptually *is*; the **Description*
 | 3 | `packages/core/app-node/` | **`@tetherto/mdk-app-node`** | Backend | Fastify/Express middleware bundle: JWT, RBAC, REST/WS routes, MCP server. |
 | 4 | `packages/workers/base/` | **`@tetherto/mdk-worker-base`** | Backend / Edge | Shared worker library: subclass for HRPC/MDK Protocol plumbing, `onTelemetryPull` / `onCommand`, and capability wiring; base for all device workers below. |
 | 5 | `packages/ui/ui-core/` | **`@tetherto/mdk-ui-core`** | Frontend | Headless state + API client; telemetry buffering and optimistic UI. Zero framework deps. |
-| 6 | `packages/ui/react/` | **`@tetherto/mdk-react`** | Frontend | React hooks over `mdk-ui-core` (e.g. `useTelemetry`). |
-| 7 | `packages/ui/ui-devkit-react/` | **`@tetherto/mdk-ui-devkit-react`** | Frontend | Radix-based React component library; 3-tier CSS customization, no host Tailwind dependency. |
+| 6 | `packages/ui/react-adapter/` | **`@tetherto/mdk-react-adapter`** | Frontend | React hooks over `mdk-ui-core` (e.g. `useTelemetry`). |
+| 7 | `packages/ui/react-devkit/` | **`@tetherto/mdk-react-devkit`** | Frontend | Radix-based React component library; 3-tier CSS customization, no host Tailwind dependency. |
 | 8 | `packages/workers/miners/whatsminer/` | **`@tetherto/mdk-worker-whatsminer`** | Backend / Edge | Reference Whatsminer worker; device protocol translation + contract-driven capabilities for ORK/MCP. |
 | 9 | `packages/workers/miners/antminer/` | **`@tetherto/mdk-worker-antminer`** | Backend / Edge | Reference Antminer worker; device protocol translation + contract-driven capabilities for ORK/MCP. |
 | 10 | `packages/workers/miners/avalon/` | **`@tetherto/mdk-worker-avalon`** | Backend / Edge | Reference Avalon worker; device protocol translation + contract-driven capabilities for ORK/MCP. |
@@ -86,8 +86,8 @@ mdk/
 │   │
 │   ├── ui-client/                   # Frontend toolkit (FE)
 │   │   ├── ui-core/                 # @tetherto/mdk-ui-core
-│   │   ├── react/                   # @tetherto/mdk-react
-│   │   ├── ui-devkit-react/         # @tetherto/mdk-ui-devkit-react
+│   │   ├── react-adapter/           # @tetherto/mdk-react-adapter
+│   │   ├── react-devkit/            # @tetherto/mdk-react-devkit
 │   │   └── fonts/                   # @tetherto/mdk-fonts
 │   │
 │   └── workers/                     # Hardware integration (reference workers built by us)
