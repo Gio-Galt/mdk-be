@@ -56,7 +56,7 @@ See the legend above for what each package conceptually *is*; the **Description*
 | 2 | `packages/core/client/` | **`@tetherto/mdk-client`** | Backend / Comm | Transport SDK over IPC/HRPC; message envelopes and reconnect. |
 | 3 | `packages/core/app-node/` | **`@tetherto/mdk-app-node`** | Backend | Fastify/Express middleware bundle: JWT, RBAC, REST/WS routes, MCP server. |
 | 4 | `packages/workers/base/` | **`@tetherto/mdk-worker-base`** | Backend / Edge | Shared worker library: subclass for HRPC/MDK Protocol plumbing, `onTelemetryPull` / `onCommand`, and capability wiring; base for all device workers below. |
-| 5 | `packages/ui/ui-client/` | **`@tetherto/mdk-ui-core`** | Frontend | Headless state + API client; telemetry buffering and optimistic UI. Zero framework deps. |
+| 5 | `packages/ui/ui-core/` | **`@tetherto/mdk-ui-core`** | Frontend | Headless state + API client; telemetry buffering and optimistic UI. Zero framework deps. |
 | 6 | `packages/ui/react/` | **`@tetherto/mdk-react`** | Frontend | React hooks over `mdk-ui-core` (e.g. `useTelemetry`). |
 | 7 | `packages/ui/ui-devkit-react/` | **`@tetherto/mdk-ui-devkit-react`** | Frontend | Radix-based React component library; 3-tier CSS customization, no host Tailwind dependency. |
 | 8 | `packages/workers/miners/whatsminer/` | **`@tetherto/mdk-worker-whatsminer`** | Backend / Edge | Reference Whatsminer worker; device protocol translation + contract-driven capabilities for ORK/MCP. |
@@ -70,14 +70,12 @@ See the legend above for what each package conceptually *is*; the **Description*
 
 ## Monorepo folder structure
 
-Physical paths use short folder names; the `package.json` `name` is always the canonical **`@tetherto/...`** (e.g. `packages/ui/ui-client/` publishes `@tetherto/mdk-ui-core`).
-
 ```text
 mdk/
 ├── apps/                            # 🚀 Deployable applications & reference implementations
-│   ├── mdk-shell/                   # The pre-built React App Shell / Dashboard
-│   ├── example-worker/              # A reference implementation of a hardware worker
-│   └── example-app-node/            # A reference Express/Fastify App Node server
+│   ├── mdk-ui-shell/                # The pre-built React App Shell / Dashboard
+│   ├── single-process-mode/         # A reference implementation of all components, from a single executable
+│   └── multi-process-mode/          # A reference implementation of all components, from a multiple executable
 │
 ├── packages/                        # 📦 Publishable NPM libraries
 │   │
@@ -86,8 +84,8 @@ mdk/
 │   │   ├── client/                  # @tetherto/mdk-client
 │   │   └── app-node/                # @tetherto/mdk-app-node
 │   │
-│   ├── ui/                          # Frontend toolkit (FE)
-│   │   ├── ui-client/               # @tetherto/mdk-ui-core
+│   ├── ui-client/                   # Frontend toolkit (FE)
+│   │   ├── ui-core/                 # @tetherto/mdk-ui-core
 │   │   ├── react/                   # @tetherto/mdk-react
 │   │   ├── ui-devkit-react/         # @tetherto/mdk-ui-devkit-react
 │   │   └── fonts/                   # @tetherto/mdk-fonts
