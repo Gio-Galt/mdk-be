@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MDK Agent Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="shell">
+
+    <!-- ── Topbar ───────────────────────────────── -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">◇</span>
+        <div>
+          <h1>MDK Agent Studio</h1>
+          <p class="tagline">Agent → MCP → App Node → ORK → Worker · Contract-driven UI</p>
+        </div>
+      </div>
+      <div class="topbar-meta">
+        <span class="status-dot" id="llmDot" title="LLM status"></span>
+        <span class="topbar-pill" id="llmLabel">LLM …</span>
+        <span class="topbar-pill muted" id="deviceCount">— devices</span>
+      </div>
+    </header>
+
+    <!-- ── Main layout ─────────────────────────── -->
+    <div class="layout">
+
+      <!-- Left: Chat panel -->
+      <section class="panel chat-panel" aria-label="Conversation">
+
+        <div class="chat-messages" id="chatMessages">
+          <!-- Empty state shown until first message -->
+          <div class="empty-state" id="emptyState">
+            <div class="empty-icon" aria-hidden="true">◇</div>
+            <h2>Ask about your fleet</h2>
+            <p>The agent reads from <code>mdk-contract.json</code> to understand your workers, then fetches the relevant telemetry and generates a visualization.</p>
+            <div class="starter-chips" role="list" aria-label="Starter prompts">
+              <button class="starter" data-prompt="Show me the full fleet dashboard">Fleet dashboard</button>
+              <button class="starter" data-prompt="Which miners are overheating?">Thermal status</button>
+              <button class="starter" data-prompt="Generate an executive report for my boss">Executive report</button>
+              <button class="starter" data-prompt="What's the total fleet hashrate?">Hashrate overview</button>
+              <button class="starter" data-prompt="What's our current power consumption?">Power draw</button>
+              <button class="starter" data-prompt="Are there any fan failures?">Fan status</button>
+              <button class="starter" data-prompt="Show health status of all devices">Health &amp; alerts</button>
+              <button class="starter" data-prompt="Fix the overheating miners by reducing power limit">Remediate thermal</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="chat-input-bar">
+          <div class="chat-input-wrap">
+            <textarea
+              id="promptInput"
+              rows="1"
+              placeholder="Ask about your fleet… (⌘↵ to send)"
+              spellcheck="false"
+              autocomplete="off"
+            ></textarea>
+            <button id="sendBtn" class="send-btn" aria-label="Send">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 13V3M8 3L3.5 7.5M8 3L12.5 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+          <p class="input-hint">Auth: <code>Bearer mdk-agent-demo</code> · set <code>OPENAI_API_KEY</code> or <code>ANTHROPIC_API_KEY</code> for LLM-grounded intent</p>
+        </div>
+      </section>
+
+      <!-- Right: Preview + Trace -->
+      <section class="panel right-panel">
+        <div class="tab-bar" role="tablist">
+          <button class="tab active" id="tab-preview" role="tab" aria-selected="true" aria-controls="pane-preview">Preview</button>
+          <button class="tab" id="tab-trace" role="tab" aria-selected="false" aria-controls="pane-trace">Trace</button>
+          <button class="tab" id="tab-info" role="tab" aria-selected="false" aria-controls="pane-info">Capabilities</button>
+        </div>
+
+        <!-- Preview pane -->
+        <div class="tab-pane active" id="pane-preview" role="tabpanel" aria-labelledby="tab-preview">
+          <div class="preview-empty" id="previewEmpty">
+            <p>The latest generated visualization will appear here.</p>
+          </div>
+          <iframe
+            id="previewFrame"
+            title="Generated visualization"
+            sandbox="allow-same-origin"
+            style="display:none"
+          ></iframe>
+        </div>
+
+        <!-- Trace pane -->
+        <div class="tab-pane" id="pane-trace" role="tabpanel" aria-labelledby="tab-trace" hidden>
+          <div class="trace-toolbar">
+            <span class="trace-count" id="traceCount">0 events</span>
+            <button class="ghost-btn" id="clearTrace">Clear</button>
+          </div>
+          <div class="trace-list" id="traceList"></div>
+        </div>
+
+        <!-- Info / Capabilities pane -->
+        <div class="tab-pane" id="pane-info" role="tabpanel" aria-labelledby="tab-info" hidden>
+          <div class="info-section">
+            <h3>Worker capabilities</h3>
+            <p class="info-hint">Fetched live via <code>get_worker_capabilities</code> MCP tool from the stub ORK.</p>
+            <div id="capContent">
+              <p class="muted-text" id="capLoading">Loading…</p>
+            </div>
+          </div>
+          <div class="info-section">
+            <h3>Architecture flow</h3>
+            <ol class="arch-list">
+              <li><strong>UI</strong> — Operator types a natural-language prompt</li>
+              <li><strong>Agent</strong> — Interprets intent via LLM (or heuristic) with full <code>mdk-contract.json</code> as context</li>
+              <li><strong>MCP tools</strong> — Calls <code>get_worker_capabilities</code>, <code>get_fleet_telemetry</code>, optionally <code>execute_device_command</code></li>
+              <li><strong>App Node</strong> — JWT validation, RBAC, fan-out to ORK sessions</li>
+              <li><strong>ORK</strong> — Routes by <code>deviceId</code>, dispatches to worker</li>
+              <li><strong>Worker</strong> — Returns telemetry / executes command per <code>mdk-contract.json</code></li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

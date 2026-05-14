@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MDK · Agent-generated dashboard</title>
+  <style>
+    :root {
+      --mdk-bg: #0c0e12;
+      --mdk-surface: #131920;
+      --mdk-elevated: #1a2230;
+      --mdk-border: #2a3444;
+      --mdk-text: #e8ecf1;
+      --mdk-muted: #8b98a8;
+      --mdk-accent: #f7931a;
+      --mdk-accent-dim: rgba(247, 147, 26, 0.15);
+      --mdk-warn: #d4a017;
+      --mdk-danger: #e85d4c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+      background: var(--mdk-bg); color: var(--mdk-text);
+      line-height: 1.5; padding: 1.5rem;
+    }
+    header.page { border-bottom: 1px solid var(--mdk-border); padding-bottom: 1rem; margin-bottom: 1.5rem; }
+    header.page h1 { margin: 0 0 0.25rem; font-size: 1.35rem; font-weight: 600; }
+    .prompt { color: var(--mdk-muted); font-size: 0.9rem; margin: 0.35rem 0; }
+    .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+    .device-card {
+      background: var(--mdk-elevated); border: 1px solid var(--mdk-border);
+      border-radius: 12px; padding: 1rem;
+      box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset;
+    }
+    .device-card header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .device-card h2 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+    .pill { font-size: 0.7rem; color: var(--mdk-muted); border: 1px solid var(--mdk-border); padding: 0.15rem 0.5rem; border-radius: 999px; }
+    .metrics { display: flex; flex-direction: column; gap: 0.65rem; }
+    .metric-name { font-size: 0.72rem; color: var(--mdk-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .metric-val { font-size: 1.12rem; font-weight: 600; }
+    .hint { margin: 0.25rem 0 0; font-size: 0.72rem; color: var(--mdk-muted); }
+    section.capabilities { margin-top: 2rem; }
+    section.capabilities h2 { font-size: 1rem; font-weight: 600; }
+    .constraints { font-size: 0.8rem; color: var(--mdk-warn); margin-top: 0.35rem; }
+    .report-box {
+      background: var(--mdk-surface); border: 1px solid var(--mdk-border);
+      border-radius: 12px; padding: 1rem; margin-bottom: 1.5rem; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.82rem;
+      white-space: pre-wrap; border-left: 3px solid var(--mdk-accent);
+    }
+    footer { margin-top: 2rem; font-size: 0.72rem; color: var(--mdk-muted); }
+  </style>
+</head>
+<body>
+  <header class="page">
+    <h1>MDK · Agent-generated dashboard</h1>
+    <p class="prompt"><strong>Prompt:</strong> hi</p>
+    <p class="prompt">Whatsminer — Provides orchestration capabilities to control and read data from MicroBT Whatsminer Bitcoin miners. Operations here effect physical hardware. Always prioritize thermal safety and verify telemetry cha…</p>
+  </header>
+
+  
+
+  <div class="grid">
+        <article class="device-card">
+          <header>
+            <h2>wm001</h2>
+            <span class="pill">texas · whatsminer-worker</span>
+          </header>
+          <div class="metrics">
+            <div class="metric">
+              <span class="metric-name">hashrate_rt</span>
+              <span class="metric-val">110.40 <small>TH/s</small></span>
+              <p class="hint">Real-time hashrate. A value of 0 implies the miner is offline, booting, or experiencing a catastrophic failure.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">hashrate_avg</span>
+              <span class="metric-val">109.80 <small>TH/s</small></span>
+              <p class="hint">Average hashrate.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">power_draw</span>
+              <span class="metric-val">3480.00 <small>W</small></span>
+              <p class="hint">Current power draw. If dramatically lower than the current limit_watts, a hashboard might be dead.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">temperature_in</span>
+              <span class="metric-val">35.00 <small>C</small></span>
+              <p class="hint">Ambient air temperature entering the miner.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">temperature_out</span>
+              <span class="metric-val">72.00 <small>C</small></span>
+              <p class="hint">Outlet temperature. Critical metric. If this exceeds 85C reliably, intervention is required.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">fan_speed_in</span>
+              <span class="metric-val">4200.00 <small>RPM</small></span>
+              <p class="hint">Inlet fan speed. Below 2000 RPM usually indicates a broken fan.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">fan_speed_out</span>
+              <span class="metric-val">4300.00 <small>RPM</small></span>
+              <p class="hint">Outlet fan speed. Below 2000 RPM usually indicates a broken fan.</p>
+            </div></div>
+        </article>
+        <article class="device-card">
+          <header>
+            <h2>wm002</h2>
+            <span class="pill">texas · whatsminer-worker</span>
+          </header>
+          <div class="metrics">
+            <div class="metric">
+              <span class="metric-name">hashrate_rt</span>
+              <span class="metric-val">108.10 <small>TH/s</small></span>
+              <p class="hint">Real-time hashrate. A value of 0 implies the miner is offline, booting, or experiencing a catastrophic failure.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">hashrate_avg</span>
+              <span class="metric-val">107.50 <small>TH/s</small></span>
+              <p class="hint">Average hashrate.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">power_draw</span>
+              <span class="metric-val">3510.00 <small>W</small></span>
+              <p class="hint">Current power draw. If dramatically lower than the current limit_watts, a hashboard might be dead.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">temperature_in</span>
+              <span class="metric-val">42.00 <small>C</small></span>
+              <p class="hint">Ambient air temperature entering the miner.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">temperature_out</span>
+              <span class="metric-val">89.00 <small>C</small></span>
+              <p class="hint">Outlet temperature. Critical metric. If this exceeds 85C reliably, intervention is required.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">fan_speed_in</span>
+              <span class="metric-val">4100.00 <small>RPM</small></span>
+              <p class="hint">Inlet fan speed. Below 2000 RPM usually indicates a broken fan.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">fan_speed_out</span>
+              <span class="metric-val">4000.00 <small>RPM</small></span>
+              <p class="hint">Outlet fan speed. Below 2000 RPM usually indicates a broken fan.</p>
+            </div></div>
+        </article>
+        <article class="device-card">
+          <header>
+            <h2>am001</h2>
+            <span class="pill">iceland · antminer-worker</span>
+          </header>
+          <div class="metrics">
+            <div class="metric">
+              <span class="metric-name">hashrate_rt</span>
+              <span class="metric-val">140.00 <small>TH/s</small></span>
+              <p class="hint">Real-time hashrate. A value of 0 implies the miner is offline, booting, or experiencing a catastrophic failure.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">hashrate_avg</span>
+              <span class="metric-val">139.20 <small>TH/s</small></span>
+              <p class="hint">Average hashrate.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">power_draw</span>
+              <span class="metric-val">3400.00 <small>W</small></span>
+              <p class="hint">Current power draw. If dramatically lower than the current limit_watts, a hashboard might be dead.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">temperature_in</span>
+              <span class="metric-val">22.00 <small>C</small></span>
+              <p class="hint">Ambient air temperature entering the miner.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">temperature_out</span>
+              <span class="metric-val">68.00 <small>C</small></span>
+              <p class="hint">Outlet temperature. Critical metric. If this exceeds 85C reliably, intervention is required.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">fan_speed_in</span>
+              <span class="metric-val">4800.00 <small>RPM</small></span>
+              <p class="hint">Inlet fan speed. Below 2000 RPM usually indicates a broken fan.</p>
+            </div>
+            <div class="metric">
+              <span class="metric-name">fan_speed_out</span>
+              <span class="metric-val">4700.00 <small>RPM</small></span>
+              <p class="hint">Outlet fan speed. Below 2000 RPM usually indicates a broken fan.</p>
+            </div></div>
+        </article></div>
+
+  <section class="capabilities">
+    <h2>Declared commands (<code>mdk-contract.json</code>)</h2>
+    <ul>
+      <li>
+        <strong><code>reboot</code></strong>
+        — Safely restarts the controller. Takes approx 2-3 minutes for the dashboard to respond again.
+        <div class="constraints">Do not call sequentially within 5 minutes. Never issue this command more than once in a 15-minute window. Allow time for the boot telemetry to settle.</div>
+      </li>
+      <li>
+        <strong><code>setPowerLimit</code></strong>
+        — Adjusts PSU output.
+        <div class="constraints">Never set below 2000W or hashboards may fail to initialize. Max is usually model-dependent (up to 3500W-4000W).</div>
+      </li>
+      <li>
+        <strong><code>setPools</code></strong>
+        — Updates the primary mining pool configuration.
+        
+      </li></ul>
+  </section>
+
+  <footer>MDK Agent Studio · contract-driven telemetry layout</footer>
+</body>
+</html>
