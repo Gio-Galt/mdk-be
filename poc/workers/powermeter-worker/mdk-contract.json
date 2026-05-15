@@ -1,0 +1,111 @@
+{
+  "$schema": "../../mdk-worker-base/mdk-contract.schema.json",
+  "metadata": {
+    "provider": "schneider-electric",
+    "deviceFamily": "powermeter",
+    "brand": "PM8000",
+    "modelsSupported": ["PM8240", "PM8244", "PM8248"],
+    "workerType": "powermeter-worker",
+    "overview": "Controls and monitors Schneider Electric PM8000 series smart power meters installed per mining rack. Telemetry covers grid-side voltage, current, real power, power factor, cumulative energy, and frequency. Provides load-shedding capability via circuit breaker control. Power factor below 0.90 indicates reactive load problems — investigate PSU health on the rack."
+  },
+  "devices": [],
+  "capabilities": {
+    "telemetry": [
+      {
+        "name": "voltage_v",
+        "unit": "V",
+        "type": "number",
+        "description": "RMS line voltage. Nominal is 230V (EU) or 240V (US). Above 250V is an overvoltage condition — PSUs may clamp or shut down. Below 200V is undervoltage — hashrate drops and PSUs may fault."
+      },
+      {
+        "name": "current_a",
+        "unit": "A",
+        "type": "number",
+        "description": "RMS current draw for the rack. A sudden drop to 0 while circuit_enabled=true indicates a tripped breaker or PSU failure."
+      },
+      {
+        "name": "power_kw",
+        "unit": "kW",
+        "type": "number",
+        "description": "Active real power consumed by the rack. Calculated as voltage_v × current_a × power_factor / 1000. Alert when this approaches the configured alert_threshold_kw."
+      },
+      {
+        "name": "power_factor",
+        "unit": "",
+        "type": "number",
+        "description": "Power factor (0.0–1.0). Ideal is above 0.95 for modern PSUs. Below 0.90 indicates reactive load — may signal aging or failing PSUs on the rack."
+      },
+      {
+        "name": "energy_kwh",
+        "unit": "kWh",
+        "type": "number",
+        "description": "Cumulative energy consumed since last counter reset. Used for cost accounting and efficiency trending."
+      },
+      {
+        "name": "frequency_hz",
+        "unit": "Hz",
+        "type": "number",
+        "description": "Grid frequency. Nominal 50 Hz (EU) or 60 Hz (US). Deviations beyond ±0.5 Hz may indicate grid instability — log and alert, do not issue commands during instability."
+      },
+      {
+        "name": "circuit_enabled",
+        "unit": "",
+        "type": "boolean",
+        "description": "True when the rack circuit breaker is closed (power flowing). False means load shed or manual lockout. Never enable a circuit without confirming the rack is ready — sudden inrush can trip upstream breakers."
+      },
+      {
+        "name": "alert_threshold_kw",
+        "unit": "kW",
+        "type": "number",
+        "description": "Configured alert threshold for real power. When power_kw exceeds this value, alert.threshold_exceeded is raised. Adjustable via setAlertThreshold command."
+      }
+    ],
+    "commands": [
+      {
+        "name": "setCircuitBreaker",
+        "description": "Opens (false) or closes (true) the rack circuit breaker for controlled load shedding or restoration. Disabling cuts all power to the rack instantly.",
+        "constraints": "Never disable a circuit without operator confirmation. Re-enabling a circuit causes a high inrush current — stagger enables across racks by at least 5 seconds. Do not toggle a circuit more than 3 times within 60 seconds.",
+        "params": [
+          { "name": "enabled", "type": "boolean", "description": "true = close breaker (power on), false = open breaker (power off)" }
+        ]
+      },
+      {
+        "name": "resetEnergyCounter",
+        "description": "Resets the energy_kwh cumulative counter to zero. Used at billing period boundaries.",
+        "constraints": "This action is irreversible. Only issue at a billing period boundary or after explicit operator confirmation.",
+        "params": []
+      },
+      {
+        "name": "setAlertThreshold",
+        "description": "Updates the power threshold (kW) above which alert.threshold_exceeded is raised. Useful for proactive load management.",
+        "params": [
+          { "name": "power_kw_limit", "type": "number", "min": 1, "max": 50, "description": "Alert threshold in kilowatts" }
+        ]
+      }
+    ],
+    "config": { "schema": "pm8000_config_v1" },
+    "health": {
+      "supportedStates": ["HEALTHY", "WARNING", "DEGRADED", "CRITICAL", "OFFLINE"],
+      "alerts": [
+        "alert.overvoltage",
+        "alert.undervoltage",
+        "alert.overcurrent",
+        "alert.threshold_exceeded",
+        "alert.low_power_factor",
+        "alert.circuit_open"
+      ],
+      "troubleshooting": [
+        "alert.overvoltage: If voltage_v > 250V, notify your grid operator immediately. Do not issue other commands — protect hardware by disabling non-critical racks via setCircuitBreaker.",
+        "alert.threshold_exceeded: Reduce load by disabling lower-priority racks via setCircuitBreaker or by issuing setPowerLimit to individual miners on the rack.",
+        "alert.low_power_factor: power_factor < 0.90 suggests failing PSUs. Schedule PSU inspection during next maintenance window. Do not reset the energy counter until investigation is complete.",
+        "alert.circuit_open: If circuit_enabled=false was not intentional, check for a tripped upstream breaker. Restore only after physical inspection confirms rack is safe."
+      ]
+    },
+    "errors": {
+      "E_OVERVOLT":   "Grid voltage exceeded safe upper bound — protect connected hardware",
+      "E_UNDERVOLT":  "Grid voltage below safe lower bound — PSUs may fault",
+      "E_OVERCURRENT": "Current exceeded breaker rating — load shed or breaker trip likely",
+      "E_LOW_PF":     "Power factor below 0.90 — reactive load problem on rack PSUs"
+    }
+  }
+}

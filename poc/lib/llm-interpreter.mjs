@@ -15,6 +15,8 @@
  * }
  */
 
+import { L } from './logger.mjs';
+
 const VISUALIZATIONS = new Set([
   'thermal_grid',
   'fleet_summary',
@@ -63,7 +65,8 @@ Rules:
    - overview/all/dashboard → "full_table"
 5. setPowerLimit params: limit_watts must be between 2000 and 4000.
 6. filter "overheating" means devices with temperature_out above the critical threshold.
-7. For "action", only set command if the user explicitly requests a remediation or corrective action.`;
+7. For "action", only set command if the user explicitly requests a remediation or corrective action.
+8. focus_fields should be the MINIMUM set of fields that directly answer the question. Put the most relevant field FIRST. If unsure, use 1-3 fields.`;
 }
 
 function parseAndValidate(text, contractDocument) {
@@ -114,51 +117,65 @@ function parseAndValidate(text, contractDocument) {
 }
 
 async function openAiComplete(messages, env) {
-  const key = env.OPENAI_API_KEY;
+  const key   = env.OPENAI_API_KEY;
   const model = env.OPENAI_MODEL ?? 'gpt-4o-mini';
-  const base = (env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/$/, '');
-  const res = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
+  const base  = (env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/$/, '');
+  const url   = `${base}/chat/completions`;
+
+  const promptChars = messages.reduce((s, m) => s + (m.content?.length ?? 0), 0);
+  L.llm.info('→ OpenAI request', { model, endpoint: base, messages: messages.length, promptChars });
+
+  const t0  = Date.now();
+  const res = await fetch(url, {
+    method:  'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      temperature: 0.1,
-      response_format: { type: 'json_object' },
-      messages,
-    }),
+    body:    JSON.stringify({ model, temperature: 0.1, response_format: { type: 'json_object' }, messages }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error?.message ?? JSON.stringify(data));
+  const latencyMs = Date.now() - t0;
+
+  if (!res.ok) {
+    L.llm.error('← OpenAI error', { status: res.status, error: data.error?.message ?? JSON.stringify(data), latencyMs });
+    throw new Error(data.error?.message ?? JSON.stringify(data));
+  }
+
   const text = data.choices?.[0]?.message?.content;
   if (!text) throw new Error('OpenAI: empty response');
-  return { text, model };
+
+  const usage = { promptTokens: data.usage?.prompt_tokens, completionTokens: data.usage?.completion_tokens };
+  L.llm.info('← OpenAI response', { model, latencyMs, ...usage, responseChars: text.length });
+  return { text, model, usage };
 }
 
 async function anthropicComplete(messages, env) {
-  const key = env.ANTHROPIC_API_KEY;
-  const model = env.ANTHROPIC_MODEL ?? 'claude-3-5-haiku-20241022';
+  const key    = env.ANTHROPIC_API_KEY;
+  const model  = env.ANTHROPIC_MODEL ?? 'claude-3-5-haiku-20241022';
   const system = messages.find((m) => m.role === 'system')?.content ?? '';
-  const rest = messages.filter((m) => m.role !== 'system');
+  const rest   = messages.filter((m) => m.role !== 'system');
+
+  const promptChars = messages.reduce((s, m) => s + (m.content?.length ?? 0), 0);
+  L.llm.info('→ Anthropic request', { model, messages: rest.length, promptChars, systemChars: system.length });
+
+  const t0  = Date.now();
   const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      temperature: 0.1,
-      system,
-      messages: rest.map((m) => ({ role: m.role, content: m.content })),
-    }),
+    method:  'POST',
+    headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ model, max_tokens: 1024, temperature: 0.1, system, messages: rest.map((m) => ({ role: m.role, content: m.content })) }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error?.message ?? JSON.stringify(data));
+  const latencyMs = Date.now() - t0;
+
+  if (!res.ok) {
+    L.llm.error('← Anthropic error', { status: res.status, error: data.error?.message ?? JSON.stringify(data), latencyMs });
+    throw new Error(data.error?.message ?? JSON.stringify(data));
+  }
+
   const block = data.content?.find((b) => b.type === 'text');
   if (!block?.text) throw new Error('Anthropic: empty response');
-  return { text: block.text, model };
+
+  const usage = { inputTokens: data.usage?.input_tokens, outputTokens: data.usage?.output_tokens };
+  L.llm.info('← Anthropic response', { model, latencyMs, ...usage, responseChars: block.text.length });
+  return { text: block.text, model, usage };
 }
 
 /**
@@ -170,17 +187,25 @@ export async function interpretIntentWithLlm({
   contractDocument,
   registrations = [],
   env = process.env,
+  onTrace = null,         // optional (ts, layer, message, detail) => void
 }) {
+  const trace = (message, detail) => onTrace?.({ ts: Date.now(), layer: 'llm', message, detail });
   const provider = detectProvider(env);
   if (!provider) throw new Error('No LLM key: set OPENAI_API_KEY or ANTHROPIC_API_KEY');
 
+  // Include per-worker field ownership so the LLM can set an explicit worker filter
+  const workerFieldMap = registrations.map((r) => ({
+    siteId:          r.siteId,
+    workerType:      r.metadata?.workerType ?? r.siteId,
+    brand:           r.metadata?.brand,
+    deviceFamily:    r.metadata?.deviceFamily,
+    telemetryFields: (r.capabilities?.telemetry ?? []).map((t) => t.name),
+    commandNames:    (r.capabilities?.commands  ?? []).map((c) => c.name),
+  }));
+
   const context = {
-    mdk_contract_json: contractDocument,
-    workers_registered: registrations.map((r) => ({
-      siteId: r.siteId,
-      brand: r.metadata?.brand,
-      deviceFamily: r.metadata?.deviceFamily,
-    })),
+    mdk_contract_json:  contractDocument,
+    workers_registered: workerFieldMap,
   };
 
   const messages = [
@@ -191,12 +216,45 @@ export async function interpretIntentWithLlm({
     },
   ];
 
-  const { text, model } =
+  L.llm.info('Resolving intent', {
+    provider,
+    workers:        workerFieldMap.length,
+    contractFields: (contractDocument?.capabilities?.telemetry ?? []).length,
+    contractCmds:   (contractDocument?.capabilities?.commands  ?? []).length,
+    promptLen:      userPrompt.length,
+  });
+
+  // Emit the full request so the Trace pane shows exactly what was sent to the LLM
+  trace('LLM request messages', messages);
+
+  const { text, model, usage } =
     provider === 'openai'
       ? await openAiComplete(messages, env)
       : await anthropicComplete(messages, env);
 
-  const plan = parseAndValidate(text, contractDocument);
+  // Emit the raw text response before any parsing
+  trace('LLM raw response', { model, provider, usage, text });
+
+  let plan;
+  try {
+    plan = parseAndValidate(text, contractDocument);
+  } catch (err) {
+    L.llm.error('Plan validation failed', { error: err.message, rawResponse: text.slice(0, 200) });
+    trace('LLM validation error', { error: err.message, rawResponse: text });
+    throw err;
+  }
+
+  L.llm.info('Plan validated', {
+    intent:    plan.intent,
+    viz:       plan.visualization,
+    filter:    plan.filter,
+    focus:     plan.focus_fields,
+    cmd:       plan.command?.name ?? null,
+    cmdParams: plan.command?.params ?? null,
+  });
+
+  trace('LLM plan validated', plan);
+
   return { ...plan, _llm: { provider, model } };
 }
 

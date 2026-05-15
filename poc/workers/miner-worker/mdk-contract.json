@@ -1,0 +1,110 @@
+{
+  "$schema": "../../mdk-worker-base/mdk-contract.schema.json",
+  "metadata": {
+    "provider": "microbt",
+    "deviceFamily": "miner",
+    "brand": "Whatsminer",
+    "modelsSupported": ["M30S", "M50S", "M56S", "M60S"],
+    "workerType": "miner-worker",
+    "overview": "Controls and monitors MicroBT Whatsminer Bitcoin miners. Operations affect physical hardware. Always prioritize thermal safety and verify telemetry changes after issuing commands. Temperature thresholds are safety-critical — never dismiss E_TEMP_HIGH without verifying fan operation."
+  },
+  "devices": [],
+  "capabilities": {
+    "telemetry": [
+      {
+        "name": "hashrate_rt",
+        "unit": "TH/s",
+        "type": "number",
+        "description": "Real-time hashrate (5-second rolling average). A value of 0 means the miner is offline, booting, or experiencing a catastrophic hashboard failure."
+      },
+      {
+        "name": "hashrate_avg",
+        "unit": "TH/s",
+        "type": "number",
+        "description": "24-hour average hashrate. Sudden drops vs real-time may indicate thermal throttling or a failing hashboard."
+      },
+      {
+        "name": "power_draw",
+        "unit": "W",
+        "type": "number",
+        "description": "Current PSU power draw. If dramatically lower than the configured limit_watts, a hashboard may be dead or the miner is rebooting."
+      },
+      {
+        "name": "temperature_in",
+        "unit": "C",
+        "type": "number",
+        "description": "Ambient air temperature entering the miner chassis. High ambient (>40C) compounds outlet thermal risk."
+      },
+      {
+        "name": "temperature_out",
+        "unit": "C",
+        "type": "number",
+        "description": "Outlet air temperature. CRITICAL metric. Above 85C intervention is required immediately. Above 90C indicates imminent hardware damage."
+      },
+      {
+        "name": "fan_speed_in",
+        "unit": "RPM",
+        "type": "number",
+        "description": "Inlet fan speed. Below 2000 RPM indicates a broken fan bearing. A reading of 0 is a total mechanical failure requiring physical inspection."
+      },
+      {
+        "name": "fan_speed_out",
+        "unit": "RPM",
+        "type": "number",
+        "description": "Outlet fan speed. Below 2000 RPM indicates a broken fan bearing. A reading of 0 is a total mechanical failure requiring physical inspection."
+      }
+    ],
+    "commands": [
+      {
+        "name": "reboot",
+        "description": "Safely restarts the controller firmware. The miner will show zero hashrate for 2-3 minutes during boot. Telemetry resumes once fully initialized.",
+        "constraints": "Do not issue more than once within a 15-minute window. Never reboot while temperature_out > 92C — physically inspect cooling first. Allow 3 minutes after reboot before re-querying hashrate.",
+        "params": []
+      },
+      {
+        "name": "setPowerLimit",
+        "description": "Adjusts the PSU output cap. Lowering power reduces hashrate and outlet temperature proportionally. Use during thermal events or high electricity cost periods.",
+        "constraints": "Never set below 2000W — hashboards will fail to initialize. Maximum depends on model: M30S 3400W, M50S 3500W, M56S 3600W, M60S 4000W. Always verify temperature_out drops within 60 seconds after applying.",
+        "examples": [
+          {
+            "intent": "Reduce outlet temperature on overheating miner",
+            "steps": [
+              "1. Confirm temperature_out > 85C.",
+              "2. Call setPowerLimit with limit_watts: 2800.",
+              "3. Wait 60 seconds.",
+              "4. Confirm temperature_out trending down."
+            ]
+          }
+        ],
+        "params": [
+          { "name": "limit_watts", "type": "number", "min": 2000, "max": 4000, "description": "Target PSU wattage cap" }
+        ]
+      },
+      {
+        "name": "setPools",
+        "description": "Updates the primary stratum mining pool URL and credentials. Changing pools causes a brief hashrate interruption (~30 seconds) while reconnecting.",
+        "params": [
+          { "name": "pool1_url",  "type": "string", "description": "Stratum URL e.g. stratum+tcp://pool.example.com:3333" },
+          { "name": "pool1_user", "type": "string", "description": "Worker username" },
+          { "name": "pool1_pass", "type": "string", "description": "Worker password" }
+        ]
+      }
+    ],
+    "config": { "schema": "whatsminer_config_v1" },
+    "health": {
+      "supportedStates": ["HEALTHY", "WARNING", "DEGRADED", "CRITICAL", "OFFLINE"],
+      "alerts": ["alert.overheat", "alert.fan_failure", "alert.psu_failure", "alert.hashrate_low"],
+      "troubleshooting": [
+        "alert.overheat: Verify fan_speed_in/out. If both fans are >4000 RPM and temp is still rising, the airflow path may be blocked. Reduce power via setPowerLimit(2800W) first.",
+        "alert.fan_failure: A fan speed of 0 is a mechanical failure. Do not run the miner. Issue no commands — escalate to a human operator for physical inspection.",
+        "alert.hashrate_low: Hashboards may be tuning after a power or environment change. Wait 15 minutes before escalating. If hashrate stays <50% of nominal, reboot once.",
+        "OFFLINE: Do not issue reboot — the telemetry layer cannot reach the device. Escalate to human operator for physical inspection."
+      ]
+    },
+    "errors": {
+      "E_TEMP_HIGH": "Chip temperature exceeded safe thresholds — thermal intervention required",
+      "E_FAN_FAIL": "Fan RPM below required threshold — mechanical inspection needed",
+      "E_PSU_ERR": "PSU reporting error or unstable output — do not issue commands"
+    }
+  }
+}

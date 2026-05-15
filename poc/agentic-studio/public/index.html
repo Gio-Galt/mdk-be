@@ -12,7 +12,7 @@
 <body>
   <div class="shell">
 
-    <!-- ── Topbar ───────────────────────────────── -->
+    <!-- ── Topbar ───────────────────────────────────── -->
     <header class="topbar">
       <div class="brand">
         <span class="logo" aria-hidden="true">◇</span>
@@ -22,33 +22,38 @@
         </div>
       </div>
       <div class="topbar-meta">
+        <span class="status-dot" id="orkDot" title="ORK status"></span>
+        <span class="topbar-pill" id="orkLabel">ORK …</span>
         <span class="status-dot" id="llmDot" title="LLM status"></span>
         <span class="topbar-pill" id="llmLabel">LLM …</span>
         <span class="topbar-pill muted" id="deviceCount">— devices</span>
       </div>
     </header>
 
-    <!-- ── Main layout ─────────────────────────── -->
+    <!-- ── Main layout ─────────────────────────────── -->
     <div class="layout">
 
       <!-- Left: Chat panel -->
       <section class="panel chat-panel" aria-label="Conversation">
 
         <div class="chat-messages" id="chatMessages">
-          <!-- Empty state shown until first message -->
           <div class="empty-state" id="emptyState">
             <div class="empty-icon" aria-hidden="true">◇</div>
             <h2>Ask about your fleet</h2>
-            <p>The agent reads from <code>mdk-contract.json</code> to understand your workers, then fetches the relevant telemetry and generates a visualization.</p>
+            <p>The agent reads <code>mdk-contract.json</code> to understand your workers, fetches live telemetry, and generates a visualization.</p>
             <div class="starter-chips" role="list" aria-label="Starter prompts">
               <button class="starter" data-prompt="Show me the full fleet dashboard">Fleet dashboard</button>
-              <button class="starter" data-prompt="Which miners are overheating?">Thermal status</button>
-              <button class="starter" data-prompt="Generate an executive report for my boss">Executive report</button>
-              <button class="starter" data-prompt="What's the total fleet hashrate?">Hashrate overview</button>
-              <button class="starter" data-prompt="What's our current power consumption?">Power draw</button>
-              <button class="starter" data-prompt="Are there any fan failures?">Fan status</button>
               <button class="starter" data-prompt="Show health status of all devices">Health &amp; alerts</button>
+              <button class="starter" data-prompt="Generate an executive report for my boss">Executive report</button>
+              <button class="starter" data-prompt="Which miners are overheating?">Thermal status</button>
+              <button class="starter" data-prompt="What's the total fleet hashrate?">Hashrate overview</button>
+              <button class="starter" data-prompt="Are there any fan failures?">Fan status</button>
               <button class="starter" data-prompt="Fix the overheating miners by reducing power limit">Remediate thermal</button>
+              <button class="starter chip-pm" data-prompt="Show voltage and grid status for all power meters">Grid voltage</button>
+              <button class="starter chip-pm" data-prompt="Which racks are over their power threshold?">Power threshold</button>
+              <button class="starter chip-pm" data-prompt="Show power factor for all racks">Power factor</button>
+              <button class="starter chip-pm" data-prompt="How much energy has each rack consumed?">Energy (kWh)</button>
+              <button class="starter chip-pm" data-prompt="Show current draw per rack">Current draw</button>
             </div>
           </div>
         </div>
@@ -68,33 +73,21 @@
               </svg>
             </button>
           </div>
-          <p class="input-hint">Auth: <code>Bearer mdk-agent-demo</code> · set <code>OPENAI_API_KEY</code> or <code>ANTHROPIC_API_KEY</code> for LLM-grounded intent</p>
+          <p class="input-hint">Auth: <code>Bearer mdk-agent-demo</code> · set <code>OPENAI_API_KEY</code> or <code>ANTHROPIC_API_KEY</code> in <code>poc/.env</code></p>
         </div>
       </section>
 
-      <!-- Right: Preview + Trace -->
+      <!-- Right: Preview + Trace + Workers + Capabilities -->
       <section class="panel right-panel">
-        <div class="tab-bar" role="tablist">
-          <button class="tab active" id="tab-preview" role="tab" aria-selected="true" aria-controls="pane-preview">Preview</button>
-          <button class="tab" id="tab-trace" role="tab" aria-selected="false" aria-controls="pane-trace">Trace</button>
-          <button class="tab" id="tab-info" role="tab" aria-selected="false" aria-controls="pane-info">Capabilities</button>
-        </div>
 
-        <!-- Preview pane -->
-        <div class="tab-pane active" id="pane-preview" role="tabpanel" aria-labelledby="tab-preview">
-          <div class="preview-empty" id="previewEmpty">
-            <p>The latest generated visualization will appear here.</p>
-          </div>
-          <iframe
-            id="previewFrame"
-            title="Generated visualization"
-            sandbox="allow-same-origin"
-            style="display:none"
-          ></iframe>
+        <div class="tab-bar" role="tablist">
+          <button class="tab active" id="tab-trace"   role="tab" aria-selected="true"  aria-controls="pane-trace">Trace <span class="tab-badge" id="traceBadge">0</span></button>
+          <button class="tab"        id="tab-workers" role="tab" aria-selected="false" aria-controls="pane-workers">Workers <span class="tab-badge" id="workersBadge">—</span></button>
+          <button class="tab"        id="tab-info"    role="tab" aria-selected="false" aria-controls="pane-info">Capabilities</button>
         </div>
 
         <!-- Trace pane -->
-        <div class="tab-pane" id="pane-trace" role="tabpanel" aria-labelledby="tab-trace" hidden>
+        <div class="tab-pane active" id="pane-trace" role="tabpanel" aria-labelledby="tab-trace">
           <div class="trace-toolbar">
             <span class="trace-count" id="traceCount">0 events</span>
             <button class="ghost-btn" id="clearTrace">Clear</button>
@@ -102,27 +95,46 @@
           <div class="trace-list" id="traceList"></div>
         </div>
 
-        <!-- Info / Capabilities pane -->
-        <div class="tab-pane" id="pane-info" role="tabpanel" aria-labelledby="tab-info" hidden>
-          <div class="info-section">
-            <h3>Worker capabilities</h3>
-            <p class="info-hint">Fetched live via <code>get_worker_capabilities</code> MCP tool from the stub ORK.</p>
-            <div id="capContent">
-              <p class="muted-text" id="capLoading">Loading…</p>
+        <!-- Workers pane -->
+        <div class="tab-pane" id="pane-workers" role="tabpanel" aria-labelledby="tab-workers" hidden>
+          <div class="pane-header">
+            <span class="pane-header-title">Live Workers</span>
+            <button class="ghost-btn" id="refreshWorkers">↺ Refresh</button>
+          </div>
+          <div id="orkBanner"></div>
+          <div class="workers-scroll" id="workersList">
+            <p class="muted-text" style="padding:12px">Loading…</p>
+          </div>
+          <!-- Collapsible "Start live stack" help -->
+          <div class="start-stack-section" id="startStackSection">
+            <div class="start-stack-header" id="startStackToggle">
+              <span>How to start the live stack</span>
+              <span class="start-stack-chevron">▶</span>
+            </div>
+            <div class="start-stack-body">
+              <ol class="arch-list">
+                <li><strong>Single process (recommended)</strong><br><code>node poc/start.mjs</code></li>
+                <li><strong>Or individually from <code>mdk-be/poc/</code>:</strong></li>
+                <li>ORK &nbsp;<code>node ork/src/index.mjs</code></li>
+                <li>Miner &nbsp;<code>node workers/miner-worker/src/index.mjs</code></li>
+                <li>Powermeter &nbsp;<code>node workers/powermeter-worker/src/index.mjs</code></li>
+                <li>App Node &nbsp;<code>node agentic-studio/server.mjs</code></li>
+              </ol>
             </div>
           </div>
-          <div class="info-section">
-            <h3>Architecture flow</h3>
-            <ol class="arch-list">
-              <li><strong>UI</strong> — Operator types a natural-language prompt</li>
-              <li><strong>Agent</strong> — Interprets intent via LLM (or heuristic) with full <code>mdk-contract.json</code> as context</li>
-              <li><strong>MCP tools</strong> — Calls <code>get_worker_capabilities</code>, <code>get_fleet_telemetry</code>, optionally <code>execute_device_command</code></li>
-              <li><strong>App Node</strong> — JWT validation, RBAC, fan-out to ORK sessions</li>
-              <li><strong>ORK</strong> — Routes by <code>deviceId</code>, dispatches to worker</li>
-              <li><strong>Worker</strong> — Returns telemetry / executes command per <code>mdk-contract.json</code></li>
-            </ol>
+        </div>
+
+        <!-- Capabilities pane -->
+        <div class="tab-pane" id="pane-info" role="tabpanel" aria-labelledby="tab-info" hidden>
+          <div class="pane-header">
+            <span class="pane-header-title">Worker Capabilities</span>
+            <span class="muted-text" id="capMeta" style="font-size:0.7rem"></span>
+          </div>
+          <div class="cap-scroll" id="capContent">
+            <p class="muted-text">Loading…</p>
           </div>
         </div>
+
       </section>
 
     </div>

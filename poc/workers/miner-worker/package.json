@@ -1,0 +1,11 @@
+{
+  "name": "@mdk-poc/miner-worker",
+  "version": "0.1.0",
+  "description": "MDK POC — Miner Worker managing 10 physical Whatsminer miners (hld.md §4.4)",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.mjs",
+    "start:port": "node src/index.mjs --port=3850 --ork=http://127.0.0.1:3848"
+  },
+  "engines": { "node": ">=18.0.0" }
+}

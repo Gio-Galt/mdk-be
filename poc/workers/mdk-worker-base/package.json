@@ -1,0 +1,8 @@
+{
+  "name": "@mdk-poc/worker-base",
+  "version": "0.1.0",
+  "description": "MDK Worker Base — POC HTTP pull server implementing MDK Protocol (hld.md §4.4)",
+  "type": "module",
+  "main": "src/MDKWorkerBase.mjs",
+  "engines": { "node": ">=18.0.0" }
+}

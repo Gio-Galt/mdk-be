@@ -1,7 +1,11 @@
 /**
  * MDK Agentic POC — core engine
- * Agent → MCP → App Node → ORK → Worker (stubbed)
+ * Agent → MCP → App Node → ORK → Worker
  * Shared by CLI and Agent Studio.
+ *
+ * Supports two ORK modes:
+ *   Live   — LiveOrkClient talks to the real ORK kernel (poc/ork)
+ *   Stub   — OrkClientStub uses the built-in demo world (no external processes)
  */
 
 import { readFileSync } from 'fs';
@@ -9,9 +13,11 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { detectProvider, interpretIntentWithLlm } from './llm-interpreter.mjs';
 import { renderPage, buildNarrative } from './ui-renderer.mjs';
+import { L, banner } from './logger.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_CONTRACT_PATH = join(__dirname, '../../docs/mdk-contract.json');
+export const DEFAULT_ORK_URL = 'http://127.0.0.1:3848';
 
 // ── Utility ───────────────────────────────────────────────────────────────────
 
@@ -44,6 +50,142 @@ function computeAlerts(metrics, deviceId) {
   if ((metrics?.fan_speed_out ?? 9999) < 2000)
     alerts.push({ code: 'E_FAN_FAIL', msg: `${deviceId}: outlet fan ${metrics.fan_speed_out} RPM below 2000 RPM` });
   return alerts;
+}
+
+// ── Live ORK client (hld.md §4.3 / §4.1) ────────────────────────────────────
+
+/**
+ * Talks directly to the running ORK Kernel HTTP API.
+ * Used when the ORK process (poc/ork) is running alongside the workers.
+ */
+export class LiveOrkClient {
+  constructor(orkUrl = DEFAULT_ORK_URL) {
+    this.orkUrl = orkUrl;
+  }
+
+  async isAvailable() {
+    try {
+      const res = await fetch(`${this.orkUrl}/health`, { signal: AbortSignal.timeout(600) });
+      return res.ok;
+    } catch { return false; }
+  }
+
+  async getCapabilities() {
+    const res = await fetch(`${this.orkUrl}/capabilities`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(`ORK /capabilities ${res.status}`);
+    const { capabilities } = await res.json();
+    return capabilities; // [{ workerId, workerType, siteId, capabilities, metadata }]
+  }
+
+  async getFleetTelemetry() {
+    const res = await fetch(`${this.orkUrl}/telemetry`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(`ORK /telemetry ${res.status}`);
+    const { devices } = await res.json();
+    return devices; // flat array of device rows in App Node format
+  }
+
+  async getWorkers() {
+    const res = await fetch(`${this.orkUrl}/workers`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(`ORK /workers ${res.status}`);
+    const { workers } = await res.json();
+    return workers;
+  }
+
+  async sendCommand(deviceId, commandName, params = {}) {
+    const res = await fetch(`${this.orkUrl}/command`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ deviceId, commandName, params }),
+      signal:  AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error ?? `ORK /command ${res.status}`);
+    }
+    return res.json();
+  }
+}
+
+/**
+ * Builds MCP tools backed by the live ORK kernel.
+ * The interface is identical to createMcpTools so runAgentPipeline works without changes.
+ */
+export function createLiveMcpTools(live, traceFn) {
+  const trace = (msg, detail = null) =>
+    traceFn?.({ ts: Date.now(), layer: 'mcp', message: msg, detail });
+
+  return {
+    async get_worker_capabilities() {
+      trace('Tool: get_worker_capabilities → input', { source: 'live-ork', params: {} });
+      L.mcp.info('Tool: get_worker_capabilities', { source: 'live-ork' });
+      const raw = await live.getCapabilities();
+      const caps = raw.map((c) => ({
+        siteId:       c.siteId,
+        capabilities: c.capabilities,
+        metadata:     { ...c.metadata, workerType: c.workerType },
+      }));
+      trace('Tool: get_worker_capabilities ← output', caps);
+      L.mcp.debug('← capabilities', { workers: caps.length, types: caps.map((c) => c.metadata?.workerType) });
+      return caps;
+    },
+
+    async list_devices() {
+      trace('Tool: list_devices → input', { source: 'live-ork', params: {} });
+      L.mcp.info('Tool: list_devices', { source: 'live-ork' });
+      const rows  = await live.getFleetTelemetry();
+      const devices = rows.map((r) => ({ siteId: r.siteId, deviceId: r.deviceId, workerType: r.workerType }));
+      trace('Tool: list_devices ← output', devices);
+      L.mcp.debug('← devices', { count: devices.length });
+      return devices;
+    },
+
+    async get_fleet_telemetry({ hours = 1 } = {}) {
+      trace('Tool: get_fleet_telemetry → input', { source: 'live-ork', hours });
+      L.mcp.info('Tool: get_fleet_telemetry', { source: 'live-ork', hours });
+      const rows = await live.getFleetTelemetry();
+      trace('Tool: get_fleet_telemetry ← output', rows);
+      L.mcp.debug('← telemetry', { devices: rows.length, workerTypes: [...new Set(rows.map((r) => r.workerType))] });
+      return rows;
+    },
+
+    async execute_device_command({ deviceId, command, params = {} }) {
+      trace('Tool: execute_device_command → input', { deviceId, command, params });
+      L.mcp.info('Tool: execute_device_command', { deviceId, command, params });
+      const result = await live.sendCommand(deviceId, command, params);
+      trace('Tool: execute_device_command ← output', result);
+      L.mcp.info('← command result', { deviceId, status: result.status ?? 'OK' });
+      return result;
+    },
+  };
+}
+
+/**
+ * Build a world backed by the live ORK kernel.
+ * Returns { mcp, contractDocument } where contractDocument is the merged
+ * capability set from all registered workers.
+ */
+export async function buildLiveWorld(live, traceCollector = null) {
+  const push = (e) => traceCollector?.push?.({ ts: Date.now(), ...e });
+  push({ layer: 'app-node', message: 'Connecting to live ORK kernel', detail: { url: live.orkUrl } });
+
+  const mcp = createLiveMcpTools(live, push);
+
+  // Build a synthetic contractDocument from all worker capabilities
+  const caps = await live.getCapabilities();
+  const allTelemetry = caps.flatMap((c) => c.capabilities?.telemetry ?? []);
+  const allCommands  = caps.flatMap((c) => c.capabilities?.commands  ?? []);
+  const uniqueTelemetry = [...new Map(allTelemetry.map((t) => [t.name, t])).values()];
+  const uniqueCommands  = [...new Map(allCommands.map((c)  => [c.name, c])).values()];
+
+  const contractDocument = {
+    metadata:     caps[0]?.metadata ?? {},
+    capabilities: { telemetry: uniqueTelemetry, commands: uniqueCommands },
+    _workerTypes: caps.map((c) => c.workerType),
+  };
+
+  push({ layer: 'app-node', message: `Live fleet: ${caps.length} worker type(s)`, detail: { workerTypes: contractDocument._workerTypes } });
+
+  return { mcp, contractDocument };
 }
 
 // ── ORK client stub ───────────────────────────────────────────────────────────
@@ -160,57 +302,57 @@ export class AppNodeGateway {
 // ── MCP tool façade ───────────────────────────────────────────────────────────
 
 export function createMcpTools(appNode, agentToken, traceFn) {
-  const log = (msg, detail = null) =>
+  const trace = (msg, detail = null) =>
     traceFn?.({ ts: Date.now(), layer: 'mcp', message: msg, detail });
 
   return {
     async get_worker_capabilities() {
-      log('Tool: get_worker_capabilities');
+      trace('Tool: get_worker_capabilities → input', { source: 'stub', params: {} });
+      L.mcp.info('Tool: get_worker_capabilities', { source: 'stub', token: agentToken });
       appNode.assertAgent(agentToken, 'capabilities:read');
-      return appNode.getRegisteredCapabilities();
+      const regs = await appNode.getRegisteredCapabilities();
+      trace('Tool: get_worker_capabilities ← output', regs);
+      L.mcp.debug('← capabilities', { sites: regs.length });
+      return regs;
     },
     async list_devices() {
-      log('Tool: list_devices');
+      trace('Tool: list_devices → input', { source: 'stub', params: {} });
+      L.mcp.info('Tool: list_devices', { source: 'stub' });
       appNode.assertAgent(agentToken, 'telemetry:read');
-      return appNode.listDevices();
+      const devs = await appNode.listDevices();
+      trace('Tool: list_devices ← output', devs);
+      L.mcp.debug('← devices', { count: devs.length });
+      return devs;
     },
     async get_fleet_telemetry({ hours = 24 } = {}) {
-      log('Tool: get_fleet_telemetry', { hours });
+      trace('Tool: get_fleet_telemetry → input', { source: 'stub', hours });
+      L.mcp.info('Tool: get_fleet_telemetry', { source: 'stub', hours });
       appNode.assertAgent(agentToken, 'telemetry:read');
-      return appNode.getFleetTelemetryWindow(hours);
+      const rows = await appNode.getFleetTelemetryWindow(hours);
+      trace('Tool: get_fleet_telemetry ← output', rows);
+      L.mcp.debug('← telemetry', { devices: rows.length });
+      return rows;
     },
     async execute_device_command({ deviceId, command, params = {} }) {
-      log('Tool: execute_device_command', { deviceId, command, params });
-      return appNode.dispatchCommand(agentToken, { deviceId, command, params });
+      trace('Tool: execute_device_command → input', { deviceId, command, params });
+      L.mcp.info('Tool: execute_device_command', { source: 'stub', deviceId, command, params });
+      const result = await appNode.dispatchCommand(agentToken, { deviceId, command, params });
+      trace('Tool: execute_device_command ← output', result);
+      L.mcp.info('← command result', { deviceId, status: result.status });
+      return result;
     },
   };
 }
 
-// ── Heuristic plan (no LLM key) ──────────────────────────────────────────────
-
-export function interpretPrompt(raw, capsMerged) {
-  const p = raw.toLowerCase();
-  const tl = outletTempCriticalC(capsMerged);
-  if (/report|boss|executive|summary|email|send/.test(p) && !/dashboard|table/.test(p))
-    return { intent: 'query', focus_fields: [], visualization: 'fleet_summary', filter: 'all', title: 'Fleet Executive Summary', command: null, tempLimit: tl };
-  if (/fix|action|throttle|overheat|remediat/.test(p) || (/take.+action|take action/.test(p)))
-    return { intent: 'action', focus_fields: ['temperature_out'], visualization: 'action_result', filter: 'overheating', title: 'Thermal Remediation', command: { name: 'setPowerLimit', params: { limit_watts: 2800 }, target: 'overheating' }, tempLimit: tl };
-  if (/\b(hash|hashrate|th\/s)\b/.test(p))
-    return { intent: 'query', focus_fields: ['hashrate_rt', 'hashrate_avg'], visualization: 'metric_focus', filter: 'all', title: 'Hashrate Overview', command: null, tempLimit: tl };
-  if (/\bpower\b|watt|kw\b/.test(p))
-    return { intent: 'query', focus_fields: ['power_draw'], visualization: 'metric_focus', filter: 'all', title: 'Power Consumption', command: null, tempLimit: tl };
-  if (/\bfan\b/.test(p))
-    return { intent: 'query', focus_fields: ['fan_speed_in', 'fan_speed_out'], visualization: 'metric_focus', filter: 'all', title: 'Fan Status', command: null, tempLimit: tl };
-  if (/\b(temp|thermal|hot|heat|cool|overh)\b/.test(p))
-    return { intent: 'query', focus_fields: ['temperature_out', 'temperature_in', 'fan_speed_in', 'fan_speed_out'], visualization: 'thermal_grid', filter: 'all', title: 'Thermal Status', command: null, tempLimit: tl };
-  if (/\b(health|status|alert|online|offline|alive|down)\b/.test(p))
-    return { intent: 'query', focus_fields: [], visualization: 'health_status', filter: 'all', title: 'Fleet Health Status', command: null, tempLimit: tl };
-  return { intent: 'query', focus_fields: [], visualization: 'full_table', filter: 'all', title: 'Fleet Dashboard', command: null, tempLimit: tl };
-}
-
 export function mergeCapabilities(registrations) {
-  const [first] = registrations ?? [];
-  return first?.capabilities ?? { telemetry: [], commands: [] };
+  if (!registrations?.length) return { telemetry: [], commands: [] };
+  // Merge all worker capabilities into a unified view
+  const allTelemetry = registrations.flatMap((r) => r.capabilities?.telemetry ?? []);
+  const allCommands  = registrations.flatMap((r) => r.capabilities?.commands  ?? []);
+  return {
+    telemetry: [...new Map(allTelemetry.map((t) => [t.name, t])).values()],
+    commands:  [...new Map(allCommands.map((c)  => [c.name, c])).values()],
+  };
 }
 
 // ── Main pipeline ────────────────────────────────────────────────────────────
@@ -224,54 +366,71 @@ export async function runAgentPipeline(mcp, userPrompt, options = {}) {
   const env = options.env ?? process.env;
   const contractDocument = options.contractDocument ?? null;
   const push = (e) => trace.push({ ts: Date.now(), ...e });
+  const pipelineStart = Date.now();
 
+  banner(`AGENT PIPELINE`);
+  L.agent.info('Received prompt', { prompt: userPrompt });
   push({ layer: 'agent', message: 'Received prompt', detail: { prompt: userPrompt } });
 
   // Step 1: capabilities
+  L.agent.debug('Step 1 — fetch worker capabilities');
   const registrations = await mcp.get_worker_capabilities();
   const caps = mergeCapabilities(registrations);
   const contractMeta = {
-    brand: registrations[0]?.metadata?.brand,
+    brand:    registrations[0]?.metadata?.brand,
     overview: registrations[0]?.metadata?.overview,
   };
   const tempLimit = outletTempCriticalC(caps);
+  L.agent.info('Capabilities merged', {
+    workers:   registrations.length,
+    telemetry: caps.telemetry.length,
+    commands:  caps.commands.length,
+    tempLimit,
+  });
+  // Raw capabilities from all registered workers
+  push({ layer: 'mcp', message: 'Capabilities raw response', detail: registrations });
 
-  // Step 2: resolve intent
-  const llmEnabled =
-    env.MDK_LLM_DISABLE !== '1' &&
-    Boolean(detectProvider(env)) &&
-    Boolean(contractDocument);
-
-  let plan = null;
-  let llmResult = null;
-
-  if (llmEnabled) {
-    push({ layer: 'agent', message: 'LLM: resolve intent with full contract context' });
-    try {
-      llmResult = await interpretIntentWithLlm({
-        userPrompt,
-        contractDocument,
-        registrations,
-        env,
-      });
-      plan = { ...llmResult, tempLimit };
-      push({ layer: 'agent', message: `LLM → ${plan.visualization}`, detail: { visualization: plan.visualization, filter: plan.filter, focus_fields: plan.focus_fields, command: plan.command } });
-    } catch (err) {
-      push({ layer: 'agent', message: 'LLM failed — heuristic fallback', detail: String(err?.message) });
-    }
+  // Step 2: resolve intent via LLM (always required — no heuristic fallback)
+  const provider = detectProvider(env);
+  if (!provider) {
+    L.agent.error('No LLM API key — cannot resolve intent');
+    throw new Error('No LLM API key found. Set OPENAI_API_KEY or ANTHROPIC_API_KEY in poc/.env');
+  }
+  if (!contractDocument) {
+    L.agent.error('No contractDocument — cannot build LLM context');
+    throw new Error('No contract document available — cannot resolve intent without capability context');
   }
 
-  if (!plan) {
-    plan = interpretPrompt(userPrompt, caps);
-    plan.tempLimit = tempLimit;
-    push({ layer: 'agent', message: `Heuristic → ${plan.visualization}`, detail: { visualization: plan.visualization } });
-  }
+  L.agent.debug('Step 2 — LLM intent resolution', { provider });
+  push({ layer: 'agent', message: `LLM: resolve intent (${provider})` });
+  const llmResult = await interpretIntentWithLlm({
+    userPrompt,
+    contractDocument,
+    registrations,
+    env,
+    onTrace: push,    // pipe raw LLM request + response into the trace
+  });
+  const plan = { ...llmResult, tempLimit };
+  L.agent.info('Plan resolved', {
+    viz:    plan.visualization,
+    filter: plan.filter,
+    intent: plan.intent,
+    focus:  plan.focus_fields,
+    cmd:    plan.command?.name ?? null,
+  });
+  push({ layer: 'agent', message: `LLM → ${plan.visualization}`, detail: { visualization: plan.visualization, filter: plan.filter, focus_fields: plan.focus_fields, command: plan.command } });
 
   // Step 3: fetch telemetry
+  L.agent.debug('Step 3 — fetch fleet telemetry');
+  const hours = plan.visualization === 'fleet_summary' ? 24 : 1;
   await mcp.list_devices();
-  const allRows = await mcp.get_fleet_telemetry({ hours: plan.visualization === 'fleet_summary' ? 24 : 1 });
+  const allRows = await mcp.get_fleet_telemetry({ hours });
+  L.agent.info('Telemetry fetched', { devices: allRows.length, hours, workerTypes: [...new Set(allRows.map((r) => r.workerType))] });
+  // Raw telemetry snapshot for every device
+  push({ layer: 'ork', message: `Telemetry raw response (${allRows.length} devices)`, detail: allRows });
 
   // Step 4: apply filter
+  L.agent.debug('Step 4 — apply filter', { filter: plan.filter, totalDevices: allRows.length });
   let rows = allRows;
   const filter = plan.filter ?? 'all';
   if (filter === 'overheating') {
@@ -291,11 +450,15 @@ export async function runAgentPipeline(mcp, userPrompt, options = {}) {
     rows = allRows.filter((r) => r.deviceId === dev);
     if (!rows.length) rows = allRows;
   }
+  if (filter !== 'all') {
+    L.agent.info('Filter applied', { filter, before: allRows.length, after: rows.length });
+  }
 
   // Step 5: dispatch commands (action intent)
   let commandResults = [];
   if (plan.intent === 'action' && plan.command?.name) {
     const cmd = plan.command;
+    L.agent.info('Step 5 — action intent, dispatching command', { cmd: cmd.name, params: cmd.params, target: cmd.target });
     let targets = [];
     if (cmd.target === 'overheating') {
       targets = allRows.filter((r) => (r.metrics?.temperature_out ?? 0) > tempLimit);
@@ -306,19 +469,24 @@ export async function runAgentPipeline(mcp, userPrompt, options = {}) {
       targets = allRows.filter((r) => r.healthStatus === 'CRITICAL' || r.healthStatus === 'WARNING');
     }
     if (!targets.length) targets = allRows.filter((r) => r.healthStatus !== 'OFFLINE').slice(0, 1);
+    L.agent.info('Command targets selected', { count: targets.length, devices: targets.map((t) => t.deviceId) });
     for (const t of targets.slice(0, 3)) {
+      L.agent.info(`→ Dispatch ${cmd.name}`, { device: t.deviceId, params: cmd.params });
       push({ layer: 'agent', message: `Dispatch ${cmd.name} → ${t.deviceId}`, detail: cmd.params });
       const res = await mcp.execute_device_command({ deviceId: t.deviceId, command: cmd.name, params: cmd.params });
+      L.agent.info(`← ${cmd.name} result`, { device: t.deviceId, status: res.status ?? 'OK' });
       commandResults.push(res);
     }
-    rows = targets.length ? allRows : allRows;
+    rows = allRows;
   }
 
-  // Step 6: compute narrative from data
+  // Step 6: compute narrative
+  L.agent.debug('Step 6 — build narrative');
   const narrative = buildNarrative(plan, rows, commandResults, tempLimit, contractMeta);
   push({ layer: 'agent', message: 'Narrative computed', detail: narrative });
 
   // Step 7: render HTML
+  L.agent.debug('Step 7 — render HTML', { viz: plan.visualization, devices: rows.length });
   push({ layer: 'agent', message: 'Render HTML from contract telemetry schema', detail: { visualization: plan.visualization, devices: rows.length } });
   const html = renderPage({
     plan,
@@ -326,15 +494,24 @@ export async function runAgentPipeline(mcp, userPrompt, options = {}) {
     contractDoc: contractDocument,
     commandResults,
     narrative,
-    rationale: llmResult?._llm ? `${llmResult._llm.provider}/${llmResult._llm.model}` : null,
+    rationale: `${llmResult._llm.provider}/${llmResult._llm.model}`,
+  });
+
+  const elapsedMs = Date.now() - pipelineStart;
+  L.agent.info('Pipeline complete', {
+    viz:       plan.visualization,
+    devices:   rows.length,
+    commands:  commandResults.length,
+    htmlKb:    (html.length / 1024).toFixed(1),
+    elapsedMs,
   });
 
   return {
     html,
-    message: narrative,
-    mode: plan.visualization,
-    intent: plan,
-    llm: llmResult ? { provider: llmResult._llm.provider, model: llmResult._llm.model } : null,
+    message:        narrative,
+    mode:           plan.visualization,
+    intent:         plan,
+    llm:            { provider: llmResult._llm.provider, model: llmResult._llm.model },
     rows,
     commandResults,
     trace,

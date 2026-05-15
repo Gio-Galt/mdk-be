@@ -1,0 +1,10 @@
+{
+  "name": "@mdk-poc/ork-kernel",
+  "version": "0.1.0",
+  "description": "MDK POC — ORK Orchestration Kernel (WorkerRegistry, Scheduler, HealthMonitor, TelemetryCollector, CommandDispatcher) (hld.md §4.3)",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "engines": { "node": ">=18.0.0" }
+}

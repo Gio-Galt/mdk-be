@@ -1,0 +1,8 @@
+# Environment secrets — never commit
+.env
+
+# Generated UI artifacts
+generated/
+
+# Node
+node_modules/
