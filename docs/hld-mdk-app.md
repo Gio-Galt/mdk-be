@@ -50,14 +50,14 @@ The `@tetherto/mdk-ui-core` generates raw JavaScript state objects, which do not
 
 By calling standardized hooks like `useTelemetry(deviceId)` or `useCommand`, a UI component automatically receives perfectly buffered, reactive data, without the developer ever touching the underlying connection or state manager.
 
-**Available Adapters:** `@tetherto/mdk-react`, `@tetherto/mdk-vue`, `@tetherto/mdk-svelte`, `@tetherto/mdk-wc` (Web Components).
+**Available Adapters:** `@tetherto/mdk-react-adapter`, `@tetherto/mdk-vue`, `@tetherto/mdk-svelte`, `@tetherto/mdk-wc` (Web Components).
 
 ### 2.3 Reference UI
 
 The toolkit optionally ships styled reference components (e.g., `<DeviceTile />`). Developers own the styling completely, with **no Tailwind dependency** required in the host application.
 
-#### 2.3.1 `@tetherto/mdk-ui-devkit-react`
-For React, **`@tetherto/mdk-ui-devkit-react`** — a production-tested component library available as a standard NPM package. Key highlights:
+#### 2.3.1 `@tetherto/mdk-react-devkit`
+For React, **`@tetherto/mdk-react-devkit`** — a production-tested component library available as a standard NPM package. Key highlights:
 - Production-tested MDK-specific components (e.g., `<DeviceTile />`, `<TelemetryChart />`, `<CommandButton />`)
 - Built on React 19 + Radix UI primitives; ships pre-compiled CSS
 - Zero CSS-in-JS runtime overhead — host app does not need Tailwind
@@ -66,7 +66,7 @@ UI kits for other frameworks (Vue, Svelte, etc.) may be built in the future as d
 
 #### 2.3.2 CSS Customization Model
 
-All `@tetherto/mdk-ui-devkit-react` components support **three progressive levels** of style override, so developers can customize as much or as little as needed:
+All `@tetherto/mdk-react-devkit` components support **three progressive levels** of style override, so developers can customize as much or as little as needed:
 
 **Level 1 — Global Theme (CSS Custom Properties)**
 
@@ -150,12 +150,12 @@ The middleware provides hooks allowing developers to easily bind new REST or Web
 For developers looking for an absolute out-of-the-box solution, the toolkit pairs the Frontend and Backend into the **MDK-App Plugin Architecture** — an extensible, multi-tenant shell.
 
 ### 4.1 The Pre-Built Shell
-Instead of building a custom React layout and a custom Fastify server, developers spin up the **MDK UI Shell** and **MDK Generic App Node**. These are ready-to-use binaries fully wired together.
+Instead of building a custom React layout and a custom Fastify server, developers spin up the **App Shell** and **MDK Generic App Node**. These are ready-to-use binaries fully wired together.
 
 ### 4.2 Writing a Plugin
 External developers then write "Plugins" consisting of two tightly-coupled pieces of code that register dynamically into the shell at runtime:
 1. **MDK-App Server:** A package of business logic that registers custom backend routes (e.g., `/mining/stats`) into the Backend Toolkit's middleware hooks.
-2. **MDK-App Widget:** A custom frontend React component that mounts into the MDK UI Shell's grid layout and natively queries `/mining/stats`.
+2. **MDK-App Widget:** A custom frontend React component that mounts into the App Shell's grid layout and natively queries `/mining/stats`.
 
 **Plug-and-Play Reusability:** This explicit convention ensures that an external company can build a completely new dashboard widget and backend aggregator for a new device type, publish it as a single NPM package, and allow any user to drop it into their existing MDK deployment without modifying core source code.
 
@@ -167,8 +167,8 @@ External developers then write "Plugins" consisting of two tightly-coupled piece
 flowchart TD
     subgraph "Frontend Layer (Browser Toolkit)"
         direction TB
-        UI_COMPS["Reference UI / Shell<br/>(@tetherto/mdk-ui-devkit-react)"]
-        FRAMEWORKS["Framework Adapters<br/>(@tetherto/mdk-react, @tetherto/mdk-vue)"]
+        UI_COMPS["Reference UI / Shell<br/>(@tetherto/mdk-react-devkit)"]
+        FRAMEWORKS["Framework Adapters<br/>(@tetherto/mdk-react-adapter, @tetherto/mdk-vue)"]
         UI_CORE["@tetherto/mdk-ui-core<br/>(Headless Buffer & API Client)"]
         
         UI_COMPS -->|"consumes reactive hooks"| FRAMEWORKS

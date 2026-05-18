@@ -559,7 +559,7 @@ iframe#previewFrame { width: 100%; flex: 1; border: none; background: #0a0b0d; }
 .cap-worker-block {
   border: 1px solid var(--border);
   border-radius: 10px;
-  overflow: hidden;
+  overflow: scroll;
 }
 
 .cap-worker-head {

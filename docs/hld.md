@@ -155,7 +155,7 @@ sequenceDiagram
 
 The UI never connects to ORK directly; an App Node must act as the gateway. Developers have two paths:
 - **Direct:** Write business logic, aggregation routes, and auth directly in the App Node using `@tetherto/mdk-client` in any language (Node.js, Go, Python, etc.).
-- **MDK-App Plugins:** Use the **[MDK App Toolkit](./hld-mdk-app.md)** for a drop-in Node/Fastify shell where domain-specific logic is packaged as plug-and-play MDK-App modules.
+- **MDK-App Plugins:** Use the **[MDK App Toolkit](./hld-mdk-app.md)** for a drop-in Node/Fastify shell where domain-specific logic is packaged as plug-and-play MDK-App Plugins.
 
 Both approaches are fully supported; the choice depends on the team's preference for control vs. convention.
 
