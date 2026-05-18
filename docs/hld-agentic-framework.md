@@ -1,7 +1,3 @@
-
-
-https://github.com/user-attachments/assets/34d49413-83ee-4f29-bbf9-9c57084399c2
-
 # Agentic Framework on MDK — High-Level Design
 
 > **Version:** 0.4.0 | **Date:** 2026-05-18 | **Status:** In Review
@@ -134,43 +130,24 @@ A working end-to-end POC of the Operator Agent — exercising the full `Agent �
 
 Each asset below captures one operator prompt flowing through the live system and rendering back as a contract-driven UI panel. All assets live under [`mdk-be/docs/demo/`](./demo/).
 
-#### Videos
 
 ##### 1. Single-miner temperature query
 
 *"What's the outlet temperature on miners?"* — read-only path: `get_fleet_telemetry(filter)` → `metric_focus` visualization.
 
-<video src="./demo/get_miner_temperature.mp4" controls width="720"></video>
-
-> Fallback: [`get_miner_temperature.mp4`](./demo/get_miner_temperature.mp4)
+https://github.com/user-attachments/assets/dc05010f-b04f-4837-9afe-9df3977fc9f2
 
 ##### 2. Power status query
 
 *"What's the current power draw usage?"* — read-only path: `get_fleet_telemetry` → `health_status` / `metric_focus` visualization.
 
-<video src="./demo/get_power_status.mp4" controls width="720"></video>
-
-
-https://github.com/user-attachments/assets/dc05010f-b04f-4837-9afe-9df3977fc9f2
-
-
-
 https://github.com/user-attachments/assets/8398f977-39ed-4ce0-bf08-537d0b47f00b
 
-
-
-https://github.com/user-attachments/assets/cf7793fe-837c-4742-9362-fd858707501e
-
-
-> Fallback: [`get_power_status.mp4`](./demo/get_power_status.mp4)
-
-##### 4. Throttle a miner
+##### 3. Throttle a miner
 
 *"Set power limit on miner to 2000 W"* — write path: `execute_device_command(setPowerLimit)` → `action_result` visualization with follow-up telemetry verification.
 
-<video src="./demo/set_power_limit_to_miner.mp4" controls width="720"></video>
-
-> Fallback: [`set_power_limit_to_miner.mp4`](./demo/set_power_limit_to_miner.mp4)
+https://github.com/user-attachments/assets/cf7793fe-837c-4742-9362-fd858707501e
 
 #### Screenshots
 
