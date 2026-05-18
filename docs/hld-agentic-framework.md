@@ -266,7 +266,39 @@ sequenceDiagram
 
 
 
-### 3.7 Use Cases
+### 3.7 LLM Provider — Swappable, OpenAI-Compatible
+
+The Operator Agent talks to its LLM over the standard **OpenAI HTTP API** (`POST /v1/chat/completions`). Provider choice is **configuration only** — the POC's interpreter does a plain `fetch` against a base URL + bearer token resolved from environment variables (`OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`). See [`poc/lib/llm-interpreter.mjs` L119–L133](../poc/lib/llm-interpreter.mjs#L119-L133).
+
+Any OpenAI-compatible endpoint slots in without code changes.
+
+**Supported providers:**
+
+- **Hosted** — OpenAI, Anthropic, OpenRouter, etc.
+- **Self-hosted via QVAC** — Tether's local LLM runtime, recommended for deployments where prompts must stay on the operator's machine.
+
+#### Swapping in QVAC
+
+QVAC (`@qvac/sdk` + `@qvac/cli`) exposes the OpenAI REST surface on `http://localhost:11434/v1/`. To switch the App Node from a hosted provider to QVAC, only environment variables change:
+
+```env
+OPENAI_BASE_URL=http://localhost:11434/v1
+OPENAI_API_KEY=<token>      # only if started with --api-key
+OPENAI_MODEL=operator-llm   # alias declared in qvac.config.json
+```
+
+**Setup (one-time per deployment):**
+
+1. `npm install @qvac/sdk @qvac/cli`.
+2. Add a `qvac.config.json` declaring the models the App Node may use (e.g. `QWEN3_600M_INST_Q4` with `tools: true`).
+3. Run `qvac serve openai` (with `--api-key` / `--host` as needed).
+4. Point the App Node's `OPENAI_BASE_URL` at the QVAC URL.
+
+Reference: [QVAC HTTP server docs](https://docs.qvac.tether.io/cli/http-server/).
+
+---
+
+### 3.8 Use Cases
 
 Each use case follows the same pattern — an operator prompt, the agent's grounded plan, and the chain it exercises through MCP.
 
