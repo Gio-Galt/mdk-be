@@ -128,33 +128,47 @@ This collapses the gap between natural-language operations and a dashboard a hum
 
 A working end-to-end POC of the Operator Agent — exercising the full `Agent → MCP → App Node → ORK → Worker → Device` chain in a single-process bootstrap — lives at [`mdk-be/poc/`](../poc/).
 
-Each recording below captures one operator prompt flowing through the live system and rendering back as a contract-driven UI panel.
+Each asset below captures one operator prompt flowing through the live system and rendering back as a contract-driven UI panel. All assets live under [`mdk-be/docs/demo/`](./demo/).
 
-##### 1. Fleet temperature query
+#### Videos
 
-*"Show outlet temperature across all miners"* — read-only path: `get_fleet_telemetry` → `thermal_grid` visualization. **(Use Case C)**
+##### 1. Single-miner temperature query
 
-<video src="./demo-videos/get_fleet_temperature.mov" controls width="720"></video>
+*"What's the outlet temperature on miners?"* — read-only path: `get_fleet_telemetry(filter)` → `metric_focus` visualization.
 
-> Fallback: [`get_fleet_temperature.mov`](./demo-videos/get_fleet_temperature.mov)
+<video src="./demo/get_miner_temperature.mp4" controls width="720"></video>
+
+> Fallback: [`get_miner_temperature.mp4`](./demo/get_miner_temperature.mp4)
 
 ##### 2. Power status query
 
-*"What's the current power draw and grid status?"* — read-only path: `get_fleet_telemetry` → `health_status` / `metric_focus` visualization. **(Use Case C)**
+*"What's the current power draw usage?"* — read-only path: `get_fleet_telemetry` → `health_status` / `metric_focus` visualization.
 
-<video src="./demo-videos/get_power_status.mov" controls width="720"></video>
+<video src="./demo/get_power_status.mp4" controls width="720"></video>
 
-> Fallback: [`get_power_status.mov`](./demo-videos/get_power_status.mov)
+> Fallback: [`get_power_status.mp4`](./demo/get_power_status.mp4)
 
-##### 3. Throttle a miner
+##### 4. Throttle a miner
 
-*"Set power limit on miner X to 2800 W"* — write path: `execute_device_command(setPowerLimit)` → `action_result` visualization with follow-up telemetry verification. **(Use Case B)**
+*"Set power limit on miner to 2000 W"* — write path: `execute_device_command(setPowerLimit)` → `action_result` visualization with follow-up telemetry verification.
 
-<video src="./demo-videos/set_power_limit_to_miner.mov" controls width="720"></video>
+<video src="./demo/set_power_limit_to_miner.mp4" controls width="720"></video>
 
-> Fallback: [`set_power_limit_to_miner.mov`](./demo-videos/set_power_limit_to_miner.mov)
+> Fallback: [`set_power_limit_to_miner.mp4`](./demo/set_power_limit_to_miner.mp4)
 
-> Use cases B and C referenced above are defined in §3.7.
+#### Screenshots
+
+##### Fleet hashrate
+
+*"What's the total fleet hashrate?"* — `get_fleet_telemetry` → `fleet_summary` visualization.
+
+![Fleet hashrate panel](./demo/hashrate_fleet.png)
+
+##### Devices over power threshold
+
+*"Which racks are over their power threshold?"* — `get_fleet_telemetry` → `health_status` visualization, filtered to over-threshold devices.
+
+![Power threshold panel](./demo/power_threshold.png)
 
 ### 3.3 MCP Endpoint — Architecture
 
