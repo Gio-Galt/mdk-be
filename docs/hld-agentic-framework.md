@@ -1,3 +1,7 @@
+
+
+https://github.com/user-attachments/assets/34d49413-83ee-4f29-bbf9-9c57084399c2
+
 # Agentic Framework on MDK — High-Level Design
 
 > **Version:** 0.4.0 | **Date:** 2026-05-18 | **Status:** In Review
@@ -145,6 +149,18 @@ Each asset below captures one operator prompt flowing through the live system an
 *"What's the current power draw usage?"* — read-only path: `get_fleet_telemetry` → `health_status` / `metric_focus` visualization.
 
 <video src="./demo/get_power_status.mp4" controls width="720"></video>
+
+
+https://github.com/user-attachments/assets/dc05010f-b04f-4837-9afe-9df3977fc9f2
+
+
+
+https://github.com/user-attachments/assets/8398f977-39ed-4ce0-bf08-537d0b47f00b
+
+
+
+https://github.com/user-attachments/assets/cf7793fe-837c-4742-9362-fd858707501e
+
 
 > Fallback: [`get_power_status.mp4`](./demo/get_power_status.mp4)
 
