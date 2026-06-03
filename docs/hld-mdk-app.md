@@ -143,6 +143,8 @@ This pre-built middleware handles:
 ### 3.2 Route Extension Aggregation
 The middleware provides hooks allowing developers to easily bind new REST or WebSocket endpoints (e.g., `POST /mining/stats`) that perform complex aggregations using ORK capabilities via **`@tetherto/mdk-client`**.
 
+> The detailed design for this extension layer — a config‑driven, framework‑agnostic plugin system with first‑class AI/agent metadata — is captured in [`hld-app-node-plugins.md`](./hld-app-node-plugins.md).
+
 ---
 
 ## 4. Full-Stack Plugins (The "MDK-App" Architecture)
