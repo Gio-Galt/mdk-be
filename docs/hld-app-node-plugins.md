@@ -43,7 +43,7 @@ flowchart TD
     subgraph INPUTS["① Plugin package (installed)"]
         direction LR
         MANIFEST["mdk-plugin.json"]
-        CTRL["Controller(s)<br/>plain JS — req ⇒ result"]
+        CTRL["Controller(s)<br/>plain JS — MdkPluginRequest ⇒ MdkPluginResult"]
     end
 
     %% ---------- 2. APP NODE ----------
@@ -101,130 +101,7 @@ Three design influences:
 - **OpenAPI 3.x** — `parameters`, `requestBody`, and `responses` inside `http` follow the OpenAPI operation object shape, so the loader can emit a spec-compliant OpenAPI document for free and any OpenAPI tooling (Swagger UI, Postman import, code-gen) works without translation.
 - `**mdk-contract.json`** — `description`, `constraints`, `examples`, `errors` sit flat on the route, exactly as device commands declare their context.
 
-```json
-{
-  "$schema": "./mdk-plugin.schema.json",
-  "name": "@my-org/mdk-plugin-miners",
-  "version": "1.0.0",
-  "description": "Aggregated miner management endpoints — combines data across miner and power-meter workers.",
-
-  "routes": [
-    {
-      "handler": "src/list.js",
-      "http": {
-        "method": "GET",
-        "path": "/api/miners",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "siteId",
-            "required": false,
-            "description": "Filter miners by site identifier.",
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Array of miners with last-known telemetry.",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "./schemas/miners.list.json" }
-              }
-            }
-          }
-        }
-      },
-      "description": "List miners on a site with last-known telemetry and health state.",
-      "constraints": ["Returns cached data up to 15s old."],
-      "examples": [
-        {
-          "intent": "Get all miners for site SITE-001",
-          "request": { "method": "GET", "url": "/api/miners?siteId=SITE-001" }
-        }
-      ]
-    },
-
-    {
-      "handler": "src/setPowerLimit.js",
-      "http": {
-        "method": "POST",
-        "path": "/api/miners/{id}/power-limit",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "description": "Miner device identifier.",
-            "schema": { "type": "string" }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["watts"],
-                "properties": {
-                  "watts": {
-                    "type": "number",
-                    "minimum": 2000,
-                    "maximum": 4000,
-                    "description": "Target PSU power ceiling in watts."
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Power limit applied.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id":    { "type": "string" },
-                    "watts": { "type": "number" },
-                    "ok":    { "type": "boolean" }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Validation error or safe-error from controller (ERR_* message preserved)."
-          }
-        }
-      },
-      "description": "Adjusts the PSU power limit for a single miner. Affects physical hardware.",
-      "safety": "physical-impact",
-      "confirmationRequired": true,
-      "constraints": [
-        "Never set below 2000W or hashboards may fail to initialize.",
-        "Max is model-dependent (typically 3500–4000W).",
-        "Wait at least 60s before re-issuing to the same miner."
-      ],
-      "examples": [
-        {
-          "intent": "Throttle miner during a hot day",
-          "preconditions": ["temperature_out > 75"],
-          "steps": [
-            "Read GET /api/miners/{id} to confirm temperature_out.",
-            "POST /api/miners/{id}/power-limit with { watts: 2800 }.",
-            "Wait 60s and verify power_draw stabilized."
-          ]
-        }
-      ],
-      "errors": {
-        "ERR_MINER_OFFLINE": "Target miner not reachable; do not retry blindly.",
-        "ERR_WATTS_OUT_OF_RANGE": "watts outside the safe min/max."
-      }
-    }
-  ]
-}
-```
+See full annotated example: [mdk-plugin.example.json](./mdk-plugin.example.json)
 
 ### Field guide
 
@@ -239,12 +116,16 @@ Three design influences:
 | `description`                                | Human + AI summary. Mirrors `mdk-contract.json` command descriptions.         |
 | `constraints`                                | Hard rules for safe use. AI must respect these before calling the endpoint.   |
 | `examples`                                   | Concrete call patterns with optional `preconditions` and `steps`.             |
-| `errors`                                     | Known `ERR_*` codes and their meaning. Subset also reflected in `responses`.  |
+| `errors`                                     | Known `ERR_`* codes and their meaning. Subset also reflected in `responses`.  |
 | `safety` + `confirmationRequired`            | Agent safety flags — gates destructive calls behind explicit confirmation.    |
 | `name`, `version`, `description` (top-level) | Plugin identity — surfaced in observability and the boot-registered contract. |
 
 
 The loader validates the manifest against `mdk-plugin.schema.json` at boot; any violation raises `ERR_PLUGIN_MANIFEST_INVALID: <plugin>: <path>: <reason>` and aborts startup.
+
+`mdk-plugin.schema.json` is shipped as part of the `@tetherto/mdk-client` package — the same way `mdk-contract.schema.json` is distributed — so IDEs and editors pick it up automatically for inline validation and autocomplete when authoring a manifest.
+
+The boot-registered contract includes `pluginVersion` (read from the plugin package's `package.json`) per endpoint, so consumers and the Operator Agent can detect capability drift across deployments.
 
 ---
 
@@ -252,23 +133,30 @@ The loader validates the manifest against `mdk-plugin.schema.json` at boot; any 
 
 A plugin is a JS module exporting a single async function. Nothing else.
 
+The adapter calls it with an `**MdkPluginRequest`** and expects an `**MdkPluginResult**` back:
+
+
+| Type               | Shape                              | Description                                                                                           |
+| ------------------ | ---------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `MdkPluginRequest` | `{ params, query, body, headers }` | Inbound request — fields are schema-validated by the adapter before the controller runs.              |
+| `MdkPluginResult`  | any serialisable value             | The plugin's business payload. The adapter wraps it into the outbound MDK Protocol response envelope. |
+
+
 The plugin's downward path to ORK is `@tetherto/mdk-client` — used directly as an `import` / `require.` The App Node initializes the client once at boot; plugins retrieve the same shared instance through the package's module-level singleton (§6.4).
 
 ```js
 // @my-org/mdk-plugin-site/summary.js
 'use strict'
 
-const { telemetryPull, statePull, services, dataProxy } = require('@tetherto/mdk-client')
+const { telemetryPull, statePull } = require('@tetherto/mdk-client')
 
 module.exports = async function siteSummary (req) {
-  const { siteId }  = req.params
-  const deviceIds   = await services.site.listDeviceIds(siteId)
+  const { siteId, deviceIds } = req.params
 
-  const [roster, power, cooling, alerts] = await Promise.all([
+  const [roster, power, cooling] = await Promise.all([
     telemetryPull({ deviceIds, query: 'roster' }),
     telemetryPull({ deviceIds, query: 'power_draw' }),
     statePull    ({ deviceIds, scope: 'cooling' }),
-    dataProxy.alerts.activeForSite(siteId)
   ])
 
   return {
@@ -276,19 +164,55 @@ module.exports = async function siteSummary (req) {
     miners: { total: roster.payload.length, online: roster.payload.filter(m => m.online).length },
     power:   power.payload,
     cooling: cooling.payload,
-    alerts
   }
 }
 ```
 
 Notes on the example:
 
-- `@tetherto/mdk-client` is the **single import** for everything — MDK Protocol calls and App Node–local service accessors alike. No `ctx`, no second package.
+- `@tetherto/mdk-client` is the **single import** — MDK Protocol calls only. 
 - The plugin never names a worker (`miner-worker`, `powermeter-worker`). Workers are addressed by `deviceId` only; ORK's Worker Registry resolves ownership (HLD §3.2, §4.1.1).
-- `sender`, `user`, and `requestId` are filled automatically from the current request's `AsyncLocalStorage` scope (§6.4.3) — the plugin author never threads them.
-- The return value is the plugin's *business* payload. The adapter wraps it into the outbound MDK Protocol response envelope transparently.
+- The return value (`MdkPluginResult`) is the plugin's *business* payload. The adapter wraps it into the outbound MDK Protocol response envelope transparently.
 
-### 6.1 Request / result / error shapes
+### 6.2 Cross-worker aggregation
+
+This is the **primary use case** for the plugin system. Plugins compose data via `mdk-client` protocol calls downward to ORK — `telemetryPull`, `statePull`, `dispatch`. Every call becomes an MDK Protocol envelope routed by ORK via `deviceId`. Plugins never address a worker by name and never access App Node–level state.
+
+Typical skeleton — parallelize with `Promise.all`:
+
+```js
+const { telemetryPull } = require('@tetherto/mdk-client')
+
+module.exports = async (req) => {
+  const { deviceIds } = req.params
+
+  const [roster, power] = await Promise.all([
+    telemetryPull({ deviceIds, query: 'roster' }),
+    telemetryPull({ deviceIds, query: 'power_draw' }),
+  ])
+
+  return shape({ roster, power })
+}
+```
+
+### 6.3 Multi-site aggregation (Parallel ORKs)
+
+The App Node may be wired to several ORK kernels (one per site). `mdk-client` exposes a per-site accessor so a single plugin can fan out across sites:
+
+```js
+const mdk = require('@tetherto/mdk-client')
+
+const [tx, ic] = await Promise.allSettled([
+  mdk.forSite('texas').telemetryPull({ deviceIds: txIds, query: 'power_draw' }),
+  mdk.forSite('iceland').telemetryPull({ deviceIds: icIds, query: 'power_draw' })
+])
+```
+
+`mdk.forSite(siteId)` returns the shared `MdkClient` API bound to that site's ORK connection. Partial failures are surfaced per site so the plugin can degrade gracefully (e.g. mark `iceland` as `unavailable` while `texas` returns data).
+
+#### 6.3.1 Declared dependencies (`aggregates`)
+
+The `aggregates` array in the manifest is **documentation, not enforcement** — it lets the boot‑registered contract declare which workers and protocol actions each endpoint depends on, drives observability dashboards, and helps the agent reason about partial failures (e.g. *"`powermeter` action set is degraded → `site.summary` will return cached power values"*).
 
 All traffic across the plugin boundary — FE → App Node and App Node → ORK — uses **MDK Protocol envelopes**. See [HLD §3 (MDK Protocol)](./hld.md#3-mdk-protocol-v010--pull-based) for the canonical envelope schema, core action set, and Hyperschema governance rules.
 
@@ -300,49 +224,9 @@ Errors whose message starts with `ERR_` are surfaced as `400` responses with the
 
 The plugin's link to ORK is the `@tetherto/mdk-client` package itself. It is initialized **once** at App Node boot for each ORK (or site) and reused by every plugin through the package's module‑level singleton.
 
-#### 6.4.3 Per‑request context via `AsyncLocalStorage` (no plumbing)
+#### 6.4.4 Plugin-owned storage
 
-The MDK Protocol `sender`, current `user`, and request `id` should accompany every downward call. To keep plugin code clean, the App Node's HTTP adapter wraps each request in an `AsyncLocalStorage` scope; `mdk-client` reads that scope when assembling the envelope.
-
-```js
-// HTTP adapter — runs once per incoming request, before the controller
-const { runWithRequestScope } = require('@tetherto/mdk-client')
-
-await runWithRequestScope(
-  {
-    requestId: req.id,
-    user:      req.user,
-    sender:    `app-node:plugin:${route.pluginId}`,
-    site:      req.headers['x-mdk-site'] || null
-  },
-  async () => controller(neutralReq)
-)
-```
-
-Inside the plugin, `mdk.telemetryPull(...)` automatically attaches `sender`, `user`, and `requestId` to the outgoing envelope — the author writes none of that. This is the same idea as `cls-hooked` / Express `req.context`, expressed via Node's built-in `AsyncLocalStorage`.
-
-#### 6.4.4 App Node–local accessors via `mdk-client`
-
-There is no `ctx`. App Node–local services are exported directly from `@tetherto/mdk-client` alongside the protocol methods — boot-time singletons initialized once by the App Node and accessible anywhere via import:
-
-| Export | What it provides |
-|---|---|
-| `conf` | Read-only App Node config slice |
-| `log()` | Request-scoped child logger (reads from `AsyncLocalStorage`) |
-| `dataProxy` | Read-optimized local accessors (Hyperbee/store) |
-| `services` | App Node–level service helpers (`miners`, `alerts`, `users`, `globalData`, …) |
-| `store` | Raw store access (`getBee`, …) |
-
-Pure protocol plugins need no additional imports at all:
-
-```js
-const { telemetryPull } = require('@tetherto/mdk-client')
-
-module.exports = async (req) => telemetryPull({
-  deviceId: req.params.id,
-  query:    'power_draw'
-})
-```
+Plugins may own self-contained storage (e.g. a local Hyperbee within the plugin package) but must never access App Node–level store or state. External data comes exclusively through `@tetherto/mdk-client` protocol calls through ORK.
 
 #### 6.4.5 What plugins still must not do
 
@@ -358,35 +242,9 @@ Three rules, all lint‑enforced:
 
 Everything else the package exports — functions, classes for typing, error classes, action enums — is fair game.
 
-
-### 6.6 Inbound validation inherited from the App Node
-
-Validation is **inherited**, not re‑implemented per plugin. Order of checks before a controller runs:
-
-```mermaid
-flowchart LR
-    REQ["HTTP/WS Request"] --> SCHEMA["Adapter:<br/>OpenAPI schema<br/>(parameters, requestBody, responses)"]
-    SCHEMA --> NORM["Adapter:<br/>NeutralRequest build"]
-    NORM --> CTRL["Plugin controller<br/>req ⇒ result"]
-    CTRL --> ENV["Adapter:<br/>wrap as MDK Protocol response<br/>+ Hyperschema validate"]
-    ENV --> OUT["HTTP/WS Response"]
-```
-
-
-
-Concretely:
-
-- **At ingress** (caller → plugin):
-  - Route-level OpenAPI schema (`parameters`, `requestBody`) is applied by the adapter before the controller runs.
-  - The plugin receives a `NeutralRequest` whose `params`, `query`, and `body` are schema-validated.
-  - App Node JWT/RBAC (HLD §4.1.2), when enabled, is enforced globally by the App Node — not declared per route in `mdk-plugin.json`.
-- **At downward calls** (plugin → ORK):
-  - `mdk-client` constructs the envelope and Hyperschema‑validates the payload against the action's schema before HRPC dispatch.
-  - ORK validates the envelope again on receipt (defense in depth) per §3.4.
-- **At egress** (plugin → caller):
-  - The controller returns a `NeutralResult`.
-  - The adapter wraps it into an MDK Protocol **response envelope** (`type: "response"`, same `id` lineage as the originating request where applicable) and validates against the response schema declared in `route.schema.response` and/or the registered Hyperschema for the action.
-  - Failure to validate raises an `ERR_PROTOCOL_RESPONSE_INVALID` and the caller receives a sanitized 500 (same masking rules as §6.3).
+> **In-process security:** third-party plugin code runs with the App Node worker's full privileges. Until sandboxing is in scope, plugin packages should be vendored and reviewed before deployment.
+>
+> **Sandboxing (deferred):** the recommended future solution is to run each plugin in a dedicated Node.js `worker_thread`, exposing only the `mdk-client` message-passing API across the thread boundary. This limits blast radius — a misbehaving plugin cannot access the App Node's memory, file handles, or other plugins. Implement after the core plugin system is stable.
 
 Plugin authors thus never write envelope construction or payload validation. They write a pure aggregation function and inherit schema validation from the adapter and protocol checks from `mdk-client`.
 
@@ -396,28 +254,67 @@ Plugin authors thus never write envelope construction or payload validation. The
 
 ```mermaid
 sequenceDiagram
-    autonumber
     participant Wrk as http.node.wrk
     participant L as PluginLoader
-    participant Cfg as http.routes.json
-    participant FS as require()
     participant A as HttpAdapter
 
-    Wrk->>L: load(cfg, baseDir)
-    L->>Cfg: read + JSON-Schema validate
-    Cfg-->>L: validated config
-    loop for each route
-        L->>FS: require(route.plugin)
-        FS-->>L: handler fn
-        L->>L: assert typeof handler === 'function'
-        L->>L: merge defaults, normalize URL
+    Wrk->>L: registerPlugin(pkg) × N
+    loop for each plugin
+        L->>L: read + validate mdk-plugin.json
+        L->>L: require(handler) — fail fast
+        L->>A: registerRoute(descriptor)
     end
-    L->>L: assert unique ids and (method, path)
-    L->>A: registerRoute(descriptor) ×N
-    L->>Wrk: { routes, catalog, metadata }
     Wrk->>A: start()
 ```
 
+
+
+### 7.0 Entry-point process file
+
+The App Node is a **library**. The operator writes a thin process file that creates one `MdkClient` instance per ORK (one per site), registers plugins, and starts the node:
+
+```js
+// http.node.wrk.js  — the actual running process
+'use strict'
+
+const { AppNode }       = require('@tetherto/mdk-app-node')
+const { MdkClient }     = require('@tetherto/mdk-client')
+const pluginMiners      = require('@my-org/mdk-plugin-miners')
+const pluginSiteSummary = require('@my-org/mdk-plugin-site-summary')
+
+async function main () {
+  // 1. Create one MdkClient per ORK — pass an array for multi-site deployments
+  const clients = await Promise.all([
+    MdkClient.init({ siteId: 'texas', orkKey: process.env.ORK_KEY_TEXAS }),
+    MdkClient.init({ siteId: 'iceland', orkKey: process.env.ORK_KEY_ICELAND }),
+  ])
+
+  // 2. Create the App Node, passing the client array in
+  const node = new AppNode({ clients })
+
+  // 3. Register plugins — each plugin package ships its own mdk-plugin.json
+  await node.registerPlugin(pluginMiners)
+  await node.registerPlugin(pluginSiteSummary)
+
+  // 4. Start — validates all manifests, registers routes, publishes contract, begins listening
+  await node.start()
+}
+
+main().catch((err) => {
+  console.error(err)
+  process.exit(1)
+})
+```
+
+What each step does:
+
+
+| Step                       | What happens                                                                                                                           |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `MdkClient.init(...)`      | Opens the HRPC connection to one ORK; tagged with a `siteId` for multi-site fan-out (§6.3).                                            |
+| `new AppNode({ clients })` | Wires the App Node library with all client connections; no network activity yet.                                                       |
+| `node.registerPlugin(pkg)` | Reads `mdk-plugin.json` from the package, validates it, eagerly `require()`s every handler. Aborts with `ERR_PLUGIN_*` on any problem. |
+| `node.start()`             | Registers all routes with the HTTP adapter, publishes the assembled plugin contract to ORK (§10), and starts listening.                |
 
 
 ### 7.1 Eager loading guarantees
@@ -426,177 +323,55 @@ sequenceDiagram
 - Any failure (`MODULE_NOT_FOUND`, syntax error, non‑function export) aborts boot with a clear error and the offending route id.
 - The result is a fully‑populated in‑memory route table and a derived **plugin contract** snapshot (registered upward at boot, §10).
 
+> **Hot reload:** if feasible during development, implement reload on `SIGHUP` — re-run the loader, swap the route table, and re-publish the contract without restarting the process. Scope to development mode first; production restart remains the safe default.
+
 ### 7.2 Boot‑time contract registration
 
 The contract is **discovered and assembled at boot**, not on demand. As each plugin is imported (§7), the loader reads the plugin's single JSON manifest and derives the contract from the `ai`/`summary`/`description` portions of its route entries, merging them into one in‑memory **plugin contract** — the same lifecycle moment as ORK pulling `mdk-contract.json` from a worker during discovery (HLD §4.4.2). See §10 for the discovery model.
 
 The assembled contract is then **registered upward** (published to ORK / the agentic framework, and written to disk as a static artifact) so consumers read a pre‑built contract rather than triggering generation through an API call.
 
-### 7.3 Built‑in diagnostic route injected by the loader
-
-
-| Route                   | Purpose                                             |
-| ----------------------- | --------------------------------------------------- |
-| `GET /api/_meta/health` | Plugin‑system health, plugin count, last load time. |
-
-
-Declared in a baseline `http.routes.core.json` that the loader merges with the user config. Note there is **no** `GET /_meta/contract` generation endpoint — the contract is a boot artifact (§10), so any read path simply serves the already‑registered static document.
-
 ---
 
 ## 8. HTTP Adapter
 
-The adapter is the **only** file allowed to import the active HTTP framework.
-
-```mermaid
-flowchart LR
-    DESC["RouteDescriptor<br/>(neutral)"] --> ADAPTER
-    ADAPTER -->|"build validators from OpenAPI schema"| FW["@tetherto/svc-facs-httpd<br/>(Fastify)"]
-    ADAPTER -->|"toNeutralReq()<br/>applyResult()"| FW
-```
-
-
+The adapter is the **only** file that imports the active HTTP framework. Everything else — the loader, plugins, and the manifest — is framework-agnostic.
 
 Responsibilities:
 
 1. **OpenAPI validation** — translates `http.parameters`, `http.requestBody`, and `http.responses` into framework-native validators.
-2. **Request normalization** — wraps framework request as `NeutralRequest`.
-3. **Response materialization** — turns `NeutralResult` into framework response calls (`reply.status().send()`, `reply.redirect()`, stream piping).
-4. **Error envelope** — preserves the existing `ERR_`* masking behavior.
-5. **WebSocket bridging** — exposes a unified `WsConnection` to plugins regardless of underlying lib (`@fastify/websocket` today).
-
-Swapping frameworks is a one‑file change: implement a new adapter and switch `conf.adapter` from `"fastify"` to e.g. `"express"`. Plugins and config are untouched.
-
----
-
-## 9. Cross‑Worker Aggregation Model
-
-This is the **primary use case** for the plugin system. Aggregation plugins compose two primitives, in this order of preference:
-
-1. **`mdk-client` protocol calls** (downward to ORK) — `telemetryPull`, `statePull`, `dispatch`. Every call becomes an MDK Protocol envelope routed by ORK via `deviceId`. Parallelize with `Promise.all`. Plugins never address a worker by name.
-2. **`mdk-client` local accessors** — `dataProxy.<domain>.<query>(...)`. Read-optimized accessors over App Node–local state (e.g. `dataProxy.alerts`, `dataProxy.miners`). Use when the data is already projected locally — no need to round-trip to ORK.
-
-### 9.1 Typical aggregator skeleton
-
-```js
-const { telemetryPull, services, dataProxy } = require('@tetherto/mdk-client')
-
-module.exports = async (req) => {
-  const { siteId } = req.params
-  const deviceIds  = await services.site.listDeviceIds(siteId)
-
-  const [roster, power, alerts] = await Promise.all([
-    telemetryPull({ deviceIds, query: 'roster' }),
-    telemetryPull({ deviceIds, query: 'power_draw' }),
-    dataProxy.alerts.activeForSite(siteId)
-  ])
-
-  return shape({ roster, power, alerts })
-}
-```
-
-### 9.2 Multi‑site aggregation (Parallel ORKs)
-
-Per HLD §7.2, the App Node may be wired to several ORK kernels (one per site). `mdk-client` exposes a per‑site view of the singleton so a single plugin can fan out across sites:
-
-```js
-const mdk = require('@tetherto/mdk-client')
-
-const [tx, ic] = await Promise.allSettled([
-  mdk.forSite('texas').telemetryPull({ deviceIds: txIds, query: 'power_draw' }),
-  mdk.forSite('iceland').telemetryPull({ deviceIds: icIds, query: 'power_draw' })
-])
-```
-
-`mdk.forSite(siteId)` returns the same shared `MdkClient` API bound to that site's ORK connection. Partial failures are surfaced per site so the plugin can degrade gracefully (e.g. mark `iceland` as `unavailable` while `texas` returns data).
-
-### 9.3 Declared dependencies (`aggregates`)
-
-The `aggregates` array in the config is **documentation, not enforcement** — it lets the boot‑registered contract declare which workers and protocol actions each endpoint depends on, drives observability dashboards, and helps the agent reason about partial failures (e.g. *"`powermeter` action set is degraded → `site.summary` will return cached power values"*).
+2. **Request normalization** — wraps the framework request into an `MdkPluginRequest` (`params`, `query`, `body`, `headers`) passed to the controller.
+3. **Response materialization** — turns the controller's `MdkPluginResult` into framework response calls.
+4. **Error masking** — errors starting with `ERR_` are returned as `400` with the message preserved; all others are masked as `500`.
+5. **WebSocket bridging** — exposes a uniform `WsConnection` to plugins regardless of the underlying WS lib.
+6. **Streaming / SSE** — the adapter handles both REST and WS as middleware, so plugins receive a uniform abstraction for streaming responses (SSE or WS) without knowing which transport is active.
 
 ---
 
-## 10. AI Contract — Boot‑Time Discovery
+## 10. AI Contract & MCP Tools
 
-The plugin contract is modeled on the worker contract (HLD §4.4.2): a static JSON document that is **discovered when the component is loaded**, not produced on a runtime request. For workers, ORK pulls `mdk-contract.json` during the discovery handshake. For App Node plugins, the loader collects the `ai` half of each plugin's single manifest at boot — the same file that defines the routes.
+At boot the loader derives a contract from every discovered route's `description`, `constraints`, `examples`, and `errors` fields — the same vocabulary used in `mdk-contract.json` for device workers. The assembled document is published to ORK once and never regenerated on demand.
 
-### 10.0 Discovery model
+The App Node's MCP module then generates **one MCP tool per plugin route** from this contract, exactly as it does for worker commands:
 
-Each plugin package **ships one JSON manifest** (§5) — the same file that defines its routes. There is no separate contract document: the `ai` block lives inside each route entry alongside its wiring. The manifest is discoverable by convention from the imported package — e.g. a `mdk-plugin.json` at the package root, or a `mdk.plugin` field in its `package.json` pointing at the file. At boot the loader reads this one file and derives the contract from the `ai`/`summary`/`description` portions of each route.
+| Source | MCP tools generated |
+|---|---|
+| Worker `mdk-contract.json` | One tool per telemetry channel + one per command |
+| Plugin `mdk-plugin.json` | One tool per plugin route |
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Wrk as http.node.wrk (boot)
-    participant L as PluginLoader
-    participant Pkg as Imported Plugin Pkg
-    participant Reg as Contract Registry
-    participant ORK as ORK / Agent Framework
+The Operator Agent calls aggregated endpoints — `get_miners_list`, `set_miner_power_limit`, `get_site_summary` — the same way it calls raw device commands, with `constraints`, `examples`, and `safety` guards from the manifest applied automatically:
 
-    Wrk->>L: load(routesConf)
-    loop for each imported plugin
-        L->>Pkg: require() + read manifest json (mdk-plugin.json)
-        Pkg-->>L: manifest (routes incl. wiring + ai)
-        L->>L: validate, register routes, derive contract from ai
-    end
-    L->>Reg: register assembled plugin contract
-    Reg-->>ORK: publish contract on boot (static)
-    Note over Reg,ORK: No per-request generation. Mirrors worker mdk-contract.json discovery.
+```
+Operator Agent
+  └─ MCP tool: get_site_summary
+       └─ App Node HTTP Adapter
+            └─ Plugin controller (@my-org/mdk-plugin-site-summary)
+                 └─ mdk-client → ORK → Workers (fan-out)
 ```
 
+The agent never reaches past the plugin for aggregated data — the plugin owns the fan-out. See [Agentic Framework HLD §3.3](./hld-agentic-framework.md#33-mcp-endpoint--architecture) for how the MCP module builds and refreshes the tool list.
 
 
-Key consequences:
 
-- **Install‑time = capability‑time.** What an agent can call is fully determined by which plugins are installed/imported at boot. Adding a capability means installing a plugin and restarting — exactly like adding a new worker to ORK.
-- **No lazy assembly.** The contract exists before the first request. Read paths serve the already‑registered document; they never trigger generation.
-- **Single registration point.** The assembled contract is published once at boot to ORK / the agentic framework, the same channel and timing as worker capability registration.
 
-### 10.1 Contract assembly
-
-For every discovered route entry the loader emits a contract record:
-
-```json
-{
-  "method": "GET",
-  "url": "/api/site/{siteId}/summary",
-  "description": "...",
-  "schema": { /* OpenAPI parameters / requestBody / responses */ },
-  "constraints": [ /* verbatim from manifest */ ],
-  "examples": [ /* verbatim from manifest */ ]
-}
-```
-
-The assembled boot artifact is:
-
-```json
-{ "metadata": { /* service-wide */ }, "endpoints": [ /* one per discovered route */ ] }
-```
-
-This document is built once at boot and registered upward (§10.0). It is identical in spirit to the payload a worker returns for `capability.request`.
-
-### 10.2 Parity with `mdk-contract.json`
-
-The `ai` block intentionally mirrors the vocabulary used by device contracts (`intent`, `constraints`, `examples` with `preconditions`/`steps`, `errors`). Because both the plugin contract and the worker contract are **boot‑discovered static documents** with the same shape, an agent that already understands device contracts ingests the plugin contract with no schema changes — and obtains both through the same registration channel rather than a bespoke API.
-
-## 11. Security & Safety
-
-- **Schema validation** at the adapter layer means controllers can trust validated `req.params`, `req.query`, and `req.body` from the OpenAPI manifest.
-- App Node JWT/RBAC (HLD §4.1.2), when enabled, applies globally — not per route in `mdk-plugin.json`.
-- **MDK Protocol validation is inherited.** Plugins cannot bypass it: `@tetherto/mdk-client` is the only sanctioned transport.
-- `**require('@tetherto/mdk-client')` in plugins is encouraged; `new MdkClient(...)` and `MdkClient.init(...)` are not.** Plugins consume the App Node–initialized singleton; they never instantiate or re‑initialize transport. See §6.4.5 for the three forbidden patterns. Lint‑enforced.
-- **In‑process plugins**: third‑party code runs with the worker's privileges. Until sandboxing is in scope, plugin sources should be vendored and reviewed.
-- **AI safety hints**: `ai.safety` (e.g. `"physical-impact"`) and `ai.confirmationRequired` propagate from config into the boot‑registered contract so agents can gate destructive calls behind explicit confirmation.
-
----
-
-## 13. Open Questions
-
-1. **Plugin versioning** — should the boot contract include `pluginVersion` per route (read from the plugin package's `package.json`), so consumers can detect capability drift across deployments?
-2. **Schema reuse** — collocate JSON schemas with plugins, or centralize under `config/schemas/`?
-3. **Streaming responses** — formalize a neutral stream/event abstraction for SSE alongside WS?
-4. **Hot reload** — defer indefinitely, or scope a "reload on SIGHUP" first iteration?
-5. **Sandboxing** — is there appetite for running untrusted plugins in worker threads?
-
----
 

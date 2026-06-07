@@ -1,0 +1,122 @@
+{
+  "$schema": "./mdk-plugin.schema.json",
+  "name": "@my-org/mdk-plugin-miners",
+  "version": "1.0.0",
+  "description": "Aggregated miner management endpoints — combines data across miner and power-meter workers.",
+
+  "routes": [
+    {
+      "handler": "src/list.js",
+      "http": {
+        "method": "GET",
+        "path": "/api/miners",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "siteId",
+            "required": false,
+            "description": "Filter miners by site identifier.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of miners with last-known telemetry.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "./schemas/miners.list.json" }
+              }
+            }
+          }
+        }
+      },
+      "description": "List miners on a site with last-known telemetry and health state.",
+      "constraints": ["Returns cached data up to 15s old."],
+      "examples": [
+        {
+          "intent": "Get all miners for site SITE-001",
+          "request": { "method": "GET", "url": "/api/miners?siteId=SITE-001" }
+        }
+      ]
+    },
+
+    {
+      "handler": "src/setPowerLimit.js",
+      "http": {
+        "method": "POST",
+        "path": "/api/miners/{id}/power-limit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "description": "Miner device identifier.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["watts"],
+                "properties": {
+                  "watts": {
+                    "type": "number",
+                    "minimum": 2000,
+                    "maximum": 4000,
+                    "description": "Target PSU power ceiling in watts."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Power limit applied.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id":    { "type": "string" },
+                    "watts": { "type": "number" },
+                    "ok":    { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error or safe-error from controller (ERR_* message preserved)."
+          }
+        }
+      },
+      "description": "Adjusts the PSU power limit for a single miner. Affects physical hardware.",
+      "safety": "physical-impact",
+      "confirmationRequired": true,
+      "constraints": [
+        "Never set below 2000W or hashboards may fail to initialize.",
+        "Max is model-dependent (typically 3500–4000W).",
+        "Wait at least 60s before re-issuing to the same miner."
+      ],
+      "examples": [
+        {
+          "intent": "Throttle miner during a hot day",
+          "preconditions": ["temperature_out > 75"],
+          "steps": [
+            "Read GET /api/miners/{id} to confirm temperature_out.",
+            "POST /api/miners/{id}/power-limit with { watts: 2800 }.",
+            "Wait 60s and verify power_draw stabilized."
+          ]
+        }
+      ],
+      "errors": {
+        "ERR_MINER_OFFLINE": "Target miner not reachable; do not retry blindly.",
+        "ERR_WATTS_OUT_OF_RANGE": "watts outside the safe min/max."
+      }
+    }
+  ]
+}
