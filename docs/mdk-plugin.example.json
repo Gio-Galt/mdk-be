@@ -42,6 +42,7 @@
 
     {
       "handler": "src/setPowerLimit.js",
+      
       "http": {
         "method": "POST",
         "path": "/api/miners/{id}/power-limit",
@@ -117,6 +118,20 @@
         "ERR_MINER_OFFLINE": "Target miner not reachable; do not retry blindly.",
         "ERR_WATTS_OUT_OF_RANGE": "watts outside the safe min/max."
       }
+    },
+
+    {
+      "handler": "src/internalStatus.js",
+      "mcpOptOut": true,
+      "http": {
+        "method": "GET",
+        "path": "/api/miners/_internal/status",
+        "responses": {
+          "200": { "description": "Internal plugin health snapshot." }
+        }
+      },
+      "description": "Internal status endpoint — live HTTP route, but excluded from Operator Agent tool registration. No constraints/examples needed since no agent will call it."
     }
+
   ]
 }

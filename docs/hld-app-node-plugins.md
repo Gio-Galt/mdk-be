@@ -105,6 +105,7 @@ See the full annotated example: [mdk-plugin.example.json](./mdk-plugin.example.j
 | `examples`                                   | Concrete call patterns with optional `preconditions` and `steps`.             |
 | `errors`                                     | Known `ERR_*` codes and their meaning. Subset also reflected in `responses`.  |
 | `safety` + `confirmationRequired`            | Agent safety flags — gates destructive calls behind explicit confirmation.    |
+| `mcpOptOut`                                  | Set to `true` to exclude this route from MCP tool registration. Omit (or set `false`) to expose the route as an agent tool. Use for internal/utility endpoints the Operator Agent should not call. |
 | `name`, `version`, `description` (top-level) | Plugin identity — surfaced in observability and the boot-registered contract. |
 
 
@@ -129,11 +130,13 @@ A plugin is a JS module exporting a single async function. The adapter calls it 
 | `MdkPluginResult`  | any serialisable value             | The plugin's business payload. The adapter wraps it into the outbound MDK Protocol response envelope. |
 
 
-- `@tetherto/mdk-client` is the plugin's only link to ORK — initialized once per ORK at App Node boot and shared by every plugin (§5.4). Workers are addressed by `deviceId` only; ORK's Worker Registry resolves ownership (HLD §3.2). 
+- `@tetherto/mdk-client` is the plugin's only link to ORK — initialized once per ORK at App Node boot and shared by every plugin (§5.4). Workers are addressed by `deviceId` only; ORK's Worker Registry resolves ownership (HLD §3.2).
 
-- The adapter handles all MDK Protocol envelope wrapping (see [HLD §3](./hld.md#3-mdk-protocol-v010--pull-based)) — controllers deal only with the business `payload` and inherit all validation. 
+- The adapter handles all MDK Protocol envelope wrapping (see [HLD §3](./hld.md#3-mdk-protocol-v010--pull-based)) — controllers deal only with the business `payload` and inherit all validation.
 
 - Errors starting with `ERR_` return `400` with the message preserved; all others are masked as `Bad Request`.
+
+- The frontend (browser or agent) calls plugin endpoints over standard **HTTP/WS** — the same REST surface the App Node already exposes. MDK Protocol is used only on the downward path: Plugin → `mdk-client` → ORK → worker.
 
 ### 5.2 Cross-worker aggregation
 
@@ -300,13 +303,14 @@ Validation is applied at three points and inherited by every plugin: **ingress**
 
 At boot the loader derives a contract from every route's `description`, `constraints`, `examples`, and `errors` — the same vocabulary `mdk-contract.json` uses for device workers. The assembled document is published to ORK once and never regenerated on demand.
 
-The App Node's MCP module then generates **one MCP tool per plugin route**, exactly as it does for worker commands:
+The App Node's MCP module then generates **one MCP tool per plugin route** (unless `mcpOptOut: true`), exactly as it does for worker commands:
 
+| Source                     | MCP tools generated                                           |
+| -------------------------- | ------------------------------------------------------------- |
+| Worker `mdk-contract.json` | One tool per telemetry channel + one per command              |
+| Plugin `mdk-plugin.json`   | One tool per route where `mcpOptOut` is not `true`            |
 
-| Source                     | MCP tools generated                              |
-| -------------------------- | ------------------------------------------------ |
-| Worker `mdk-contract.json` | One tool per telemetry channel + one per command |
-| Plugin `mdk-plugin.json`   | One tool per plugin route                        |
+Routes marked `mcpOptOut: true` are still fully functional HTTP endpoints — they are simply excluded from the agent's tool list. Use this for internal, utility, or low-level routes the agent should not call directly.
 
 
 The Operator Agent calls aggregated endpoints — `get_miners_list`, `set_miner_power_limit`, `get_site_summary` — the same way it calls raw device commands, with the manifest's `constraints`, `examples`, and `safety` guards applied automatically:
