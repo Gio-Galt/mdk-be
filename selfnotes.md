@@ -78,7 +78,7 @@
 ### Key Question
 
 - **Workers monorepo layout:** Align with Hemant — do we still need a `base/` folder per device-type vertical (`miners/`, `containers/`, …), or can we flatten that? Clarify what that layer buys us before locking `mdk-libraries.md` (monorepo section).
-- Talk to Parag and build MDK Coding Agent Skill from Parag's exising work (Robert may have some suggestion, not clear tho!) along with Harrie's doc 
+- Talk to Parag and build MDK Coding Agent Skill from Parag's exising work (Robert may have some suggestion, not clear tho!) along with Harrie's doc
 
 ---
 
@@ -105,6 +105,7 @@
 4. add precommit hoooks to avoid pushing any bad code
 5. what is this mock-control-service?
 6. move all back to one template folder / package
+7. should rename app node to gateway
 
 __
 
@@ -122,3 +123,41 @@ We define npm Workspaces at the parent level. When you run npm install at the wo
 
 When deploying / publishing to npm:
 Since you are already using official package names in your require() calls and those local cross-dependencies are listed in the dependencies field of each package.json, when someone installs your published package from the npm registry, npm will fetch and install the correct packages from the registry.
+
+what is the automated test case runner? how can i run for entire project at once? is there any gates which block if coverage is not enough? 
+
+can we keep allow TS code as well if someone wants to build the integration in TS? we still keep our code is JS n later transpile it to TS if needed. but the flexiblity in the monorepo to write TS code for any intergration should be there. 
+
+should we call app-node as gateway? much more generic term for outside to understand, rather than app-node which is very spefic to internal org level detail and other may misinterpret it 
+
+const { getOrk, startWorker } = require('../../../backend/core/mdk'): what exactly does this library has 
+
+__
+
+opt out from ai context 
+
+does FE really needs to send MDK protocol messages? 
+
+OpenAPI standard we want to then how it will work?
+
+secrurity aspect from selfnotes
+
+mcp poc on top of app-node
+
+release process doc from publsh, to ci to devsecops to marketting
+
+__
+
+[https://github.com/awslabs/nx-plugin-for-aws](https://github.com/awslabs/nx-plugin-for-aws)
+
+[https://github.com/aws/agent-toolkit-for-aws/](https://github.com/aws/agent-toolkit-for-aws/)
+
+[https://smithy.io/](https://smithy.io/)
+
+[https://github.com/awslabs/cli-agent-orchestrator](https://github.com/awslabs/cli-agent-orchestrator)
+
+[https://github.com/awslabs/mcp](https://github.com/awslabs/mcp)
+
+create code agent specfic plugin to served to their marketplace native
+
+doc for cli 
