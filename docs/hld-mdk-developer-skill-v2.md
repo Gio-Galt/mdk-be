@@ -2,7 +2,7 @@
 
 > **Version:** 1.0.0  |  **Date:** 2026-06-13  |  **Status:** Final
 >
-> The MDK Developer Skill is delivered as a **Skill Suite** shipped via the **universal Agent Skills standard** (`npx skills add`), with explicit install steps for **Cursor** and **Claude Code** (§7). Per-agent native plugin bundles/marketplaces are intentionally **out of scope** (§7.5), with the AWS Agent Toolkit (§10) used as the reference point. Site discovery reuses the **existing App Node MCP** (`[hld-agentic-framework.md](./hld-agentic-framework.md)` §3).
+> The MDK Developer Skill is delivered as a **Skill Suite** shipped via the **universal Agent Skills standard** (`npx skills add`), with explicit install steps for **Cursor** and **Claude Code** (§7). Per-agent native plugin bundles/marketplaces are intentionally **out of scope** (§7.5). Site discovery reuses the **existing App Node MCP** (`[hld-agentic-framework.md](./hld-agentic-framework.md)` §3).
 >
 > Companion to `[hld.md](./hld.md)`, `[hld-agentic-framework.md](./hld-agentic-framework.md)`, `[hld-mdk-app.md](./hld-mdk-app.md)`, and `[hld-app-node-plugins.md](./hld-app-node-plugins.md)`. Indexed against `[mdk-libraries.md](./mdk-libraries.md)`.
 
@@ -26,13 +26,15 @@ A developer working on top of MDK is doing one of a small set of distinct jobs (
 
 These follow the open source Agent Skills ([agentskills.io](https://agentskills.io/)) and MDK's own "make the common case easy" rationale (`[hld.md](./hld.md)` §1.1).
 
-| Principle                      | Implication for the suite                                                                                                                          |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Progressive disclosure**     | Three tiers: metadata (always) → `SKILL.md` body (on activation) → `references/`, `assets/`, `scripts/` (on demand).                              |
-| **Coherent units**             | One skill per *job to be done*, not one per package.                                                                                               |
-| **Ground in real artifacts**   | Skills derive from the monorepo's source — never from LLM generic training knowledge.                                                              |
-| **Single source of truth**     | Skill artifacts are copied from the monorepo; never separately maintained copies that drift.                                                       |
-| **Portable & client-agnostic** | Plain Markdown + JSON + code; works in any skills-compatible agent. No agent platform fork.                                                        |
+
+| Principle                      | Implication for the suite                                                                                            |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| **Progressive disclosure**     | Three tiers: metadata (always) → `SKILL.md` body (on activation) → `references/`, `assets/`, `scripts/` (on demand). |
+| **Coherent units**             | One skill per *job to be done*, not one per package.                                                                 |
+| **Ground in real artifacts**   | Skills derive from the monorepo's source — never from LLM generic training knowledge.                                |
+| **Single source of truth**     | Skill artifacts are copied from the monorepo; never separately maintained copies that drift.                         |
+| **Portable & client-agnostic** | Plain Markdown + JSON + code; works in any skills-compatible agent. No agent platform fork.                          |
+
 
 ---
 
@@ -54,24 +56,31 @@ Skills are **procedural memory for agents** — version-controlled, diffable, co
 
 ### 2.2 Skills vs. other ways to give an agent knowledge
 
+
 | Mechanism                        | Kind of knowledge                                                         | In MDK                                                                                                                    |
 | -------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | **MCP** (Model Context Protocol) | **Capability** — what the agent can *reach* (external tools/APIs)         | The Operator Agent's runtime tools, mounted in the App Node (`[hld-agentic-framework.md](./hld-agentic-framework.md)` §3) |
-| **RAG** (retrieval)              | **Facts** — relevant chunks looked up at runtime                          | Not the focus here                                                                                                        |
-| **Fine-tuning**                  | Knowledge baked into model weights — permanent, expensive                 | Not used                                                                                                                  |
-| **Skills**                       | **Procedure + judgment** — how to do a job, in what order, with what care | **The MDK Developer Skill (this document)**                                                                               |
+| **RAG** (retrieval)              | **Facts** — relevant chunks looked up at runtime                          | Not the focus here, may be for the docs by Harrie should expose this                                                      |
+| **Fine-tuning**                  | Knowledge baked into model weights — permanent, expensive                 | Not used, May be AI developer can build a use case using this                                                             |
+| **Skills**                       | **Procedure + judgment** — how to do a job, in what order, with what care | **The MDK Developer Skill ** **(this document)**                                                                          |
 
-**MCP gives an agent the *capability* to do something; a skill gives it the *judgment* for when and how.** In MDK: the Operator Agent is *capability* (MCP tools from live worker contracts); the Developer Skill is *judgment* (how to build those workers and plugins in the first place).
+
+**What it means for us?**
+
+> **MCP gives an agent the *capability* to do something; a skill gives it the *judgment* for when and how.**
 
 ### 2.3 The three open standards MDK ships to coding agents
 
-| Layer                           | Standard                                                              | What it carries                                   | Lifetime                        | Where defined                                               |
-| ------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------- | ----------------------------------------------------------- |
-| **Skills**                      | Agent Skills ([agentskills.io](https://agentskills.io)) — `SKILL.md` | *Judgment* — the procedures for the four MDK jobs | On demand (when a task matches) | **This document**                                           |
-| **Project rules**               | `AGENTS.md` ([agents.md](https://agents.md))                          | Always-on project setup, commands, invariants     | Every run                       | §8                                                          |
-| **Capability + live discovery** | **MCP** — the existing App Node MCP                                   | Runtime tools and the *live* site capability map  | Runtime / on call               | `[hld-agentic-framework.md](./hld-agentic-framework.md)` §3 |
+
+| Layer                           | Standard                                                             | What it carries                                   | Lifetime                        | Where defined                                                                        |
+| ------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------ |
+| **Skills**                      | Agent Skills ([agentskills.io](https://agentskills.io)) — `SKILL.md` | *Judgment* — the procedures for the four MDK jobs | On demand (when a task matches) | **This document**                                                                    |
+| **Project rules**               | `AGENTS.md` ([agents.md](https://agents.md))                         | Always-on project setup, commands, invariants     | Every run                       | §8                                                                                   |
+| **Capability + live discovery** | **MCP** — the existing App Node MCP                                  | Runtime tools and the *live* site capability map  | Runtime / on call               | `[hld-agentic-framework.md](./hld-agentic-framework.md)` §3 + Future HLD for details |
+
 
 > **Key design decisions:**
+>
 > 1. **Distribution is universal.** One set of `SKILL.md` folders, installed via `npx skills add`. Every major coding agent reads the *same* files. See §7.
 > 2. **No per-agent native plugins.** We do not ship `.claude-plugin/`, `.cursor-plugin/`, or `marketplace.json`. Rationale in §7.5.
 > 3. **The MCP already exists.** Site Capability Discovery (§5.1) reuses the App Node MCP — no new discovery surface.
@@ -82,6 +91,7 @@ Skills are **procedural memory for agents** — version-controlled, diffable, co
 
 These are the **only four jobs** a developer asks the agent to do on MDK. Each maps to one sub-skill in §5 and is grounded in packages from `[mdk-libraries.md](./mdk-libraries.md)`.
 
+
 | #   | Use case                                                          | Sub-skill           | Primary packages                                                                     | Output artifacts                                                     |
 | --- | ----------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
 | 1   | **New Device Worker integration** (miner, power meter, sensor, …) | `mdk-device-worker` | `@tetherto/mdk-worker-base`, `mdk-contract.schema.json`, device libs                 | Worker package: `mdk-contract.json`, `hardware`, `mapping`, subclass |
@@ -89,16 +99,19 @@ These are the **only four jobs** a developer asks the agent to do on MDK. Each m
 | 3   | **UI component** to render data from a selected Worker / Plugin   | `mdk-ui-component`  | `@tetherto/mdk-ui-core`, `@tetherto/mdk-react-adapter`, `@tetherto/mdk-react-devkit` | React component bound to a worker/plugin response                    |
 | 4   | **Deployment** of a working MDK stack                             | `mdk-deployment`    | `apps/single-process-mode`, `apps/multi-process-mode`, env config                    | Run config / launcher + env                                          |
 
+
 ### 3.1 The Notes that drive the design
 
 Each use case carries a constraint that the skill must encode — these are the reason the suite is shaped the way it is.
 
-| #   | Key design concern                                                                                                                                                                          | How the suite addresses it                                                                                                                                                                                                               |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | A worker is **site-agnostic** — it knows nothing about which site it runs in. But the developer **must be able to test it locally** before it ever joins an ORK.                            | `mdk-device-worker` ships a **local test loop**: validate the contract, boot the worker standalone, and exercise `telemetry.pull` / `command.request` with a bundled smoke harness — no live site required.                              |
-| 2   | Aggregation logic must be built **against the workers and plugins actually installed in the target site**, and their `mdk-contract.json` schemas — which differ per site.                   | Both plugin and UI skills depend on a shared **Site Capability Discovery** step (§5.1): the agent fetches the site's live capability manifest via the **existing App Node MCP** and grounds the code against it.                         |
-| 3   | The UI must render data from a **selected worker or plugin installed in the site**, shaping itself to **that endpoint's response**.                                                         | `mdk-ui-component` first runs Site Capability Discovery, then derives the component from the **response shape** (worker telemetry schema or plugin OpenAPI response), picking devkit components to match.                                |
-| 4   | Deployment is conceptually simple but the developer **needs a concrete, runnable example**.                                                                                                 | `mdk-deployment` is example-first: ready-to-run launcher configs (single-process and multi-process) with the exact env and start order.                                                                                                  |
+
+| #   | Key design concern                                                                                                                                                        | How the suite addresses it                                                                                                                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | A worker is **site-agnostic** — it knows nothing about which site it runs in. But the developer **must be able to test it locally** before it ever joins an ORK.          | `mdk-device-worker` ships a **local test loop**: validate the contract, boot the worker standalone, and exercise `telemetry.pull` / `command.request` with a bundled smoke harness — no live site required.      |
+| 2   | Aggregation logic must be built **against the workers and plugins actually installed in the target site**, and their `mdk-contract.json` schemas — which differ per site. | Both plugin and UI skills depend on a shared **Site Capability Discovery** step (§5.1): the agent fetches the site's live capability manifest via the **existing App Node MCP** and grounds the code against it. |
+| 3   | The UI must render data from a **selected worker or plugin installed in the site**, shaping itself to **that endpoint's response**.                                       | `mdk-ui-component` first runs Site Capability Discovery, then derives the component from the **response shape** (worker telemetry schema or plugin OpenAPI response), picking devkit components to match.        |
+| 4   | Deployment is conceptually simple but the developer **needs a concrete, runnable example**.                                                                               | `mdk-deployment` is example-first: ready-to-run launcher configs (single-process and multi-process) with the exact env and start order.                                                                          |
+
 
 > Use case #1 is self-contained (only local testing). Use cases #2 and #3 pivot on **Site Capability Discovery** (§5.1). #4 is configuration-and-example.
 
@@ -123,12 +136,14 @@ mdk/                                    # workspace root (per mdk-libraries.md)
 │       └── dist/mdk/                   #   the assembled suite (laid out in §4.2)
 ```
 
+
 | Sub-skill           | Grounding packages                                                                                                                                                  | Addresses Note                         |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
 | `mdk-device-worker` | `workers/base` (schema + base API), `workers/miners/`*, `workers/containers/antspace`, `workers/temperature/generic-temp`, `workers/power-meter/seneca` (templates) | #1 local testing                       |
 | `mdk-app-plugin`    | `core/app-node` (plugin loader + MCP), `core/client`                                                                                                                | #2 site discovery                      |
 | `mdk-ui-component`  | `ui-client/ui-core`, `ui-client/react-adapter`, `ui-client/react-devkit`, `ui-client/fonts`; `core/app-node` (discovery)                                            | #3 site discovery + response-shaped UI |
 | `mdk-deployment`    | `apps/single-process-mode`, `apps/multi-process-mode`, `core/ork`                                                                                                   | #4 runnable example                    |
+
 
 ### 4.2 Bundle layout
 
@@ -220,7 +235,7 @@ workers and plugins ACTUALLY installed in the site. Run Site Capability Discover
 - Workers never call ORK. ORK pulls (unidirectional).
 - `mdk-contract.json` is the single source of truth. Validate against the bundled schema.
 - All access goes through the App Node's JWT/RBAC. No back channels to ORK.
-- Use canonical `@tetherto/mdk-*` names only.
+- Use canonical `@tetherto/mdk-`* names only.
 ```
 
 ### 4.4 Progressive disclosure across the suite
@@ -256,6 +271,8 @@ flowchart TD
     TIER3 --> OUT[Grounded worker package generated]
 ```
 
+
+
 ---
 
 ## 5. Sub-skill catalogue
@@ -268,12 +285,14 @@ Each sub-skill: **trigger** (what the `description` keys on), **grounding** (whi
 
 **The discovery surface already exists — it is the App Node MCP.** `[hld-agentic-framework.md](./hld-agentic-framework.md)` §3 already mounts an MCP module on the App Node that builds its tool/capability list from each worker's `mdk-contract.json` (via ORK) and refreshes on worker registration. Site Capability Discovery consumes that existing MCP — no new service needed.
 
-| Source of truth         | What it lists                                                                                          | How the agent reads it                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| **Worker capabilities** | Every installed worker, its `siteId`/`workerType`, and full `mdk-contract.json`                        | **App Node MCP** — already exposes this, refreshed on worker registration.                  |
-| **Installed plugins**   | Every registered MDK-App Plugin and its `mdk-plugin.json` (routes, schemas, AI context)               | **App Node MCP** — plugin registry surfaced as MCP-discoverable tools. See §9 open items.   |
 
-**`site-profile.json` — the snapshot the agent grounds against.** No bundled script produces it. The suite ships `references/site-profile.schema.json` (the expected shape) and instructs the agent to produce it via:
+| Source of truth         | What it lists                                                                           | How the agent reads it                                                                    |
+| ----------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **Worker capabilities** | Every installed worker, its `siteId`/`workerType`, and full `mdk-contract.json`         | **App Node MCP** — already exposes this, refreshed on worker registration.                |
+| **Installed plugins**   | Every registered MDK-App Plugin and its `mdk-plugin.json` (routes, schemas, AI context) | **App Node MCP** — plugin registry surfaced as MCP-discoverable tools. See §9 open items. |
+
+
+`site-profile.json` — the snapshot the agent grounds against. No bundled script produces it. The suite ships `references/site-profile.schema.json` (the expected shape) and instructs the agent to produce it via:
 
 ```jsonc
 // site-profile.json
@@ -333,7 +352,7 @@ Each sub-skill: **trigger** (what the `description` keys on), **grounding** (whi
 
 ### 5.4 `mdk-ui-component` — render data from a selected worker/plugin  *(Note #3: discover, then shape to the response)*
 
-- **Trigger:** "UI / component / widget / dashboard", "show telemetry", "chart/tile/heatmap", "render data from \<worker/plugin\>".
+- **Trigger:** "UI / component / widget / dashboard", "show telemetry", "chart/tile/heatmap", "render data from worker/plugin".
 - **Grounding:** `@tetherto/mdk-ui-core`, `@tetherto/mdk-react-adapter`, `@tetherto/mdk-react-devkit` + `references/devkit-inventory.md`, and **Site Capability Discovery (§5.1)**.
 - **★ Workflow (discover → bind to response shape — addresses Note #3):**
   1. **Discover the site** — produce or read `site-profile.json` (§5.1). Confirm the selected worker/plugin exists.
@@ -361,20 +380,22 @@ The single biggest failure mode for a skill bundle is **drift** — the skill re
 
 All mechanisms are **copy-based**. The owning library builds; `mdk-skill` copies.
 
-| Bundle artifact                                               | Owned and built by                                                                                   | Copy source path                                         |
-| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| `references/mdk-contract.schema.json`                         | `packages/workers/base`                                                                               | `packages/workers/base/mdk-contract.schema.json`         |
-| `references/package-index.md`, `glossary.md`                  | `mdk-libraries.md` (hand-maintained)                                                                  | `docs/mdk-libraries.md`                                  |
-| `references/devkit-inventory.md`                              | `packages/ui-client/react-devkit` — generated from its own TS types + CSS vars                       | `packages/ui-client/react-devkit/dist/inventory.md`      |
-| `references/protocol.md`, `architecture.md`                   | Hand-curated from `hld.md` — owned here                                                               | `docs/hld.md` (curated slice)                            |
-| `references/site-discovery.md`                                | Hand-curated from `hld-app-node-plugins.md` + App Node MCP surface — owned here                      | `docs/hld-app-node-plugins.md` (curated slice)           |
-| `references/site-profile.schema.json`                         | Authored and owned here                                                                               | `packages/mdk-skill/src/`                                |
-| `assets/worker-template/`                                     | `packages/workers/miners/whatsminer` — stripped copy                                                  | `packages/workers/miners/whatsminer/`                    |
-| `assets/component-template/`                                  | `packages/ui-client/react-devkit` examples                                                            | `packages/ui-client/react-devkit/examples/`              |
-| `assets/multi-process.example/`, `single-process.example.mjs` | `apps/multi-process-mode`, `apps/single-process-mode`                                                | `apps/*/`                                                |
-| `mdk-device-worker/scripts/worker-smoke.mjs`                  | `packages/workers/base` — ships as part of its own dist                                              | `packages/workers/base/dist/worker-smoke.mjs`            |
-| `assets/mdk-plugin.template.json`                             | `mdk-plugin.example.json` (maintained in docs)                                                        | `docs/mdk-plugin.example.json`                           |
-| Frontmatter `metadata.mdk_version`                            | Monorepo root `package.json`                                                                          | Injected at copy time                                    |
+
+| Bundle artifact                                               | Owned and built by                                                              | Copy source path                                    |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `references/mdk-contract.schema.json`                         | `packages/workers/base`                                                         | `packages/workers/base/mdk-contract.schema.json`    |
+| `references/package-index.md`, `glossary.md`                  | `mdk-libraries.md` (hand-maintained)                                            | `docs/mdk-libraries.md`                             |
+| `references/devkit-inventory.md`                              | `packages/ui-client/react-devkit` — generated from its own TS types + CSS vars  | `packages/ui-client/react-devkit/dist/inventory.md` |
+| `references/protocol.md`, `architecture.md`                   | Hand-curated from `hld.md` — owned here                                         | `docs/hld.md` (curated slice)                       |
+| `references/site-discovery.md`                                | Hand-curated from `hld-app-node-plugins.md` + App Node MCP surface — owned here | `docs/hld-app-node-plugins.md` (curated slice)      |
+| `references/site-profile.schema.json`                         | Authored and owned here                                                         | `packages/mdk-skill/src/`                           |
+| `assets/worker-template/`                                     | `packages/workers/miners/whatsminer` — stripped copy                            | `packages/workers/miners/whatsminer/`               |
+| `assets/component-template/`                                  | `packages/ui-client/react-devkit` examples                                      | `packages/ui-client/react-devkit/examples/`         |
+| `assets/multi-process.example/`, `single-process.example.mjs` | `apps/multi-process-mode`, `apps/single-process-mode`                           | `apps/*/`                                           |
+| `mdk-device-worker/scripts/worker-smoke.mjs`                  | `packages/workers/base` — ships as part of its own dist                         | `packages/workers/base/dist/worker-smoke.mjs`       |
+| `assets/mdk-plugin.template.json`                             | `mdk-plugin.example.json` (maintained in docs)                                  | `docs/mdk-plugin.example.json`                      |
+| Frontmatter `metadata.mdk_version`                            | Monorepo root `package.json`                                                    | Injected at copy time                               |
+
 
 ```mermaid
 flowchart LR
@@ -396,11 +417,13 @@ flowchart LR
     VAL -->|fail| CI[CI gate blocks release]
 ```
 
+
+
 ### 6.2 Validation gates (run in CI on every monorepo change)
 
 1. **Frontmatter spec** — `skills-ref validate ./mdk/` (name regex, description length, parent-dir match).
 2. **Copy freshness** — bundled artifacts byte-equal their source in the owning library's `dist/`; fail if stale. Template validity follows by transitivity — the library's CI already validates its contract; a fresh copy is a valid copy.
-3. **Package-name lint** — no `@tetherto/mdk-*` string in any `SKILL.md` that isn't in `package-index.md`.
+3. **Package-name lint** — no `@tetherto/mdk-`* string in any `SKILL.md` that isn't in `package-index.md`.
 4. **Size budget** — each `SKILL.md` ≤ 500 lines / 5k tokens; over-budget content must move to `references/`.
 
 ### 6.3 Authoring conventions (for `SKILL.md` files owned here)
@@ -426,6 +449,7 @@ npx skills add @tetherto/mdk-skill
 ```
 
 This does two things:
+
 1. **Writes the `mdk/` skill suite** into the detected client's skills directory (`.cursor/skills/`, `.claude/skills/`, etc.).
 2. **Writes `AGENTS.md`** at the repo root. If one already exists, the MDK block is merged in rather than overwriting.
 
@@ -508,6 +532,8 @@ flowchart LR
     AGENT -->|generates| O4[Deployment / launcher]
 ```
 
+
+
 ---
 
 ## 8. AGENTS.md
@@ -521,7 +547,7 @@ flowchart LR
 - **Dev environment tips** — Node ≥ 20, how to run the stack, where the package map lives (`mdk-libraries.md`).
 - **Testing instructions** — lint/test commands that must pass before merge.
 - **PR instructions** — branch/title conventions, target branch.
-- **MDK invariants** — unidirectional protocol; `mdk-contract.json` is the single source of truth; App Node is the only trust boundary; canonical `@tetherto/mdk-*` names only; ORK stays generic.
+- **MDK invariants** — unidirectional protocol; `mdk-contract.json` is the single source of truth; App Node is the only trust boundary; canonical `@tetherto/mdk-`* names only; ORK stays generic.
 - **Pointer to the suite** — route by job when generating MDK code; run Site Capability Discovery before aggregation/UI work.
 
 ```markdown
@@ -554,10 +580,12 @@ flowchart LR
 
 ## 9. Open questions & future work
 
-| #   | Question                                                                                                                              | Action needed                                                                                                                                                                        |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+
+| #   | Question                                                                                                                              | Action needed                                                                                                                                                                           |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | **Plugin-discovery MCP tool.** Worker capabilities are surfaced by the existing MCP; installed *plugins* need an equivalent MCP tool. | Concrete gap in `@tetherto/mdk-app-node` — the plugin loader holds the registry, expose it as an MCP tool. Until then, static fallback applies. **Needs tracking in App Node backlog.** |
-| 2   | **Skill evals.** No mechanism yet to measure whether the skill produces correct MDK code.                                             | Design `evals/` — test prompts + graders — and wire into CI. Needs a separate design pass and owner.                                                                                |
+| 2   | **Skill evals.** No mechanism yet to measure whether the skill produces correct MDK code.                                             | Design `evals/` — test prompts + graders — and wire into CI. Needs a separate design pass and owner.                                                                                    |
+
 
 ---
 
@@ -582,12 +610,14 @@ agent-toolkit-for-aws/
 
 **What MDK adopts:**
 
-| AWS element | MDK equivalent |
-| --- | --- |
+
+| AWS element                                   | MDK equivalent                                                         |
+| --------------------------------------------- | ---------------------------------------------------------------------- |
 | `skills/core-skills/` + `specialized-skills/` | Router `mdk/SKILL.md` + 4 job sub-skills — same structure, smaller set |
-| `rules/aws-agent-rules.md` | `AGENTS.md` (§8), written by `npx skills add` |
-| `tools/validate.py` | Copy-freshness + frontmatter + package-name CI gates (§6.2) |
-| MCP servers in the toolkit | Existing App Node MCP — reused, not re-shipped (§7.6) |
+| `rules/aws-agent-rules.md`                    | `AGENTS.md` (§8), written by `npx skills add`                          |
+| `tools/validate.py`                           | Copy-freshness + frontmatter + package-name CI gates (§6.2)            |
+| MCP servers in the toolkit                    | Existing App Node MCP — reused, not re-shipped (§7.6)                  |
+
 
 **What MDK skips:** the per-agent native plugin layer. AWS needs it to bundle its own MCP servers into a single one-click install for dozens of officially-supported clients. MDK's MCP already exists independently on the App Node and is registered separately — the bundled-plugin convenience adds no value here. See §7.5 for rationale and the future trigger to revisit.
 
